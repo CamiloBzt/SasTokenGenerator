@@ -1,0 +1,15 @@
+export enum HttpResponseMessages {
+  OK = 'Operación completada con éxito.',
+  CREATED = 'Recurso creado exitosamente.',
+  ACCEPTED = 'Solicitud aceptada para procesamiento.',
+  NO_CONTENT = 'Operación exitosa, sin contenido para devolver.',
+  BUSINESS_ERROR = 'Error de negocio.',
+  BAD_REQUEST = 'Solicitud inválida o mal formada.',
+  UNAUTHORIZED = 'Autenticación requerida.',
+  FORBIDDEN = 'Acceso denegado.',
+  NOT_FOUND = 'Recurso no encontrado.',
+  METHOD_NOT_ALLOWED = 'Método no permitido para este recurso.',
+  INTERNAL_SERVER_ERROR = 'Error interno del servidor.',
+  NOT_IMPLEMENTED = 'Funcionalidad no implementada.',
+  SERVICE_UNAVAILABLE = 'Servicio temporalmente no disponible.',
+}

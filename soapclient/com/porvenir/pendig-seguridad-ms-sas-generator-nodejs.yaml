@@ -1,0 +1,70 @@
+{
+  'openapi': '3.0.0',
+  'paths':
+    {
+      '/service/pendig/transversales/sas/v1/generate-sas-url':
+        {
+          'post':
+            {
+              'description': 'Genera un SAS Token seguro para acceder a un blob en Azure Storage, utilizando User Delegation Key y autenticación con Azure AD.',
+              'operationId': 'SasController_handleGenerateSas',
+              'parameters': [],
+              'responses':
+                {
+                  '200':
+                    {
+                      'description': 'SAS URL generada exitosamente',
+                      'content':
+                        {
+                          'application/json':
+                            {
+                              'schema':
+                                {
+                                  'example':
+                                    {
+                                      'sasUrl': 'https://exampleaccount.blob.core.windows.net/uploads/file.pdf?sv=2024-04-03&st=2024-04-03T18:00:00Z&se=2024-04-03T18:05:00Z&sr=b&sp=r&sig=...',
+                                    },
+                                },
+                            },
+                        },
+                    },
+                  '400':
+                    {
+                      'description': 'Falta la URL o la solicitud es inválida',
+                    },
+                },
+              'summary': 'Genera una URL con SAS Token',
+              'tags': ['Sas'],
+            },
+        },
+    },
+  'info':
+    {
+      'title': 'SAS Token Generator API',
+      'description': 'API para la generación segura de SAS Tokens para Azure Blob Storage',
+      'version': '1.0',
+      'contact': {},
+    },
+  'tags':
+    [{ 'name': 'pendig-seguridad-ms-sas-generator-nodejs', 'description': '' }],
+  'servers': [],
+  'components':
+    {
+      'securitySchemes':
+        {
+          'X-RqUID': { 'type': 'apiKey', 'in': 'header', 'name': 'X-RqUID' },
+          'X-Channel':
+            { 'type': 'apiKey', 'in': 'header', 'name': 'X-Channel' },
+          'X-CompanyId':
+            { 'type': 'apiKey', 'in': 'header', 'name': 'X-CompanyId' },
+          'X-IPAddr': { 'type': 'apiKey', 'in': 'header', 'name': 'X-IPAddr' },
+          'x-forwarded-for':
+            { 'type': 'apiKey', 'in': 'header', 'name': 'x-forwarded-for' },
+          'x-GovIssueIdentType':
+            { 'type': 'apiKey', 'in': 'header', 'name': 'x-GovIssueIdentType' },
+          'x-IdentSerialNum':
+            { 'type': 'apiKey', 'in': 'header', 'name': 'x-IdentSerialNum' },
+        },
+      'schemas': {},
+    },
+}

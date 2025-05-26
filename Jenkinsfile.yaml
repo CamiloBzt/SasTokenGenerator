@@ -1,0 +1,6 @@
+sonarArgs: '-Dsonar.projectKey=pendig-seguridad-ms-sas-generator-nodejs -Dsonar.sources=.'
+pathKubernetes: 'k8s/pendig-seguridad-ms-sas-generator-nodejs.yaml'
+project: 'ns-pendigital-seguridad'
+artifactName: 'pendig-seguridad-ms-sas-generator-nodejs'
+replicasDev: 1
+replicasPrd: 1
