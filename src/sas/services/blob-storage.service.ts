@@ -127,6 +127,104 @@ export class BlobStorageService {
     }
   }
 
+  async uploadBlobBase64(
+    containerName: string,
+    directory: string | undefined,
+    blobName: string,
+    fileBase64: string,
+    mimeType: string,
+  ): Promise<{
+    blobUrl: string;
+    containerName: string;
+    blobName: string;
+    fullPath: string;
+    requestId: string;
+  }> {
+    // Validar Base64
+    if (!fileBase64 || fileBase64.trim() === '') {
+      throw new BadRequestException(ErrorMessages.FILE_BASE64_MISSING);
+    }
+
+    // Validar MIME type
+    if (!mimeType || mimeType.trim() === '') {
+      throw new BadRequestException(ErrorMessages.MIME_TYPE_MISSING);
+    }
+
+    try {
+      // Convertir Base64 a Buffer
+      const fileBuffer = Buffer.from(fileBase64, 'base64');
+
+      if (fileBuffer.length === 0) {
+        throw new BadRequestException(ErrorMessages.BASE64_EMPTY_BUFFER);
+      }
+
+      console.log(`Converting Base64 to buffer: ${fileBuffer.length} bytes`);
+
+      // Construir la ruta completa del blob incluyendo el directorio
+      const fullBlobPath = this.buildFullBlobPath(directory, blobName);
+
+      // Generar SAS token con permisos de escritura
+      const sasData = await this.sasService.generateSasTokenWithParams(
+        containerName,
+        fullBlobPath,
+        [SasPermission.WRITE, SasPermission.CREATE],
+        30, // 30 minutos de expiración
+      );
+
+      // Crear cliente de blob con SAS token
+      const blockBlobClient = new BlockBlobClient(sasData.sasUrl);
+
+      // Subir el archivo desde el buffer convertido de Base64
+      await blockBlobClient.upload(fileBuffer, fileBuffer.length, {
+        blobHTTPHeaders: {
+          blobContentType: mimeType,
+        },
+      });
+
+      console.log('Base64 upload completed successfully');
+
+      const accountName = this.configService.get<string>(
+        'azure.storageAccountName',
+      );
+      const blobUrl = `https://${accountName}.blob.core.windows.net/${containerName}/${fullBlobPath}`;
+
+      return {
+        blobUrl,
+        containerName,
+        blobName,
+        fullPath: fullBlobPath,
+        requestId: uuidv4(),
+      };
+    } catch (error: any) {
+      console.error('Error uploading Base64 blob:', error);
+
+      // Si es error de Base64 inválido (desde Buffer.from)
+      if (error.message?.includes('Invalid') || error.name === 'TypeError') {
+        throw new BadRequestException(ErrorMessages.BASE64_CONTENT_INVALID);
+      }
+
+      // Si ya es una BadRequestException del enum, relanzarla
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+
+      // Errores de Azure Storage
+      if (error.statusCode === 401) {
+        throw new InternalServerErrorException(ErrorMessages.SAS_PERMISSION);
+      }
+
+      if (error.statusCode === 403) {
+        throw new InternalServerErrorException(ErrorMessages.SAS_PERMISSION);
+      }
+
+      if (error.statusCode === 404) {
+        throw new BadRequestException(ErrorMessages.CONTAINER_NOT_FOUND);
+      }
+
+      throw new InternalServerErrorException(ErrorMessages.SAS_GENERATION);
+    }
+  }
+
   async downloadBlob(
     containerName: string,
     directory: string | undefined,
@@ -172,6 +270,75 @@ export class BlobStorageService {
       };
     } catch (error: any) {
       console.error('Error downloading blob:', error);
+
+      if (error.statusCode === 404) {
+        throw new BadRequestException(ErrorMessages.BLOB_NOT_FOUND);
+      }
+
+      if (error.statusCode === 401) {
+        throw new InternalServerErrorException(ErrorMessages.SAS_PERMISSION);
+      }
+
+      if (error.statusCode === 403) {
+        throw new InternalServerErrorException(ErrorMessages.SAS_PERMISSION);
+      }
+
+      throw new InternalServerErrorException(ErrorMessages.SAS_GENERATION);
+    }
+  }
+
+  async downloadBlobBase64(
+    containerName: string,
+    directory: string | undefined,
+    blobName: string,
+  ): Promise<{
+    fileBase64: string;
+    contentType: string;
+    containerName: string;
+    blobName: string;
+    fullPath: string;
+    size: number;
+    requestId: string;
+  }> {
+    // Construir la ruta completa del blob incluyendo el directorio
+    const fullBlobPath = this.buildFullBlobPath(directory, blobName);
+
+    // Generar SAS token con permisos de lectura
+    const sasData = await this.sasService.generateSasTokenWithParams(
+      containerName,
+      fullBlobPath,
+      [SasPermission.READ],
+      30, // 30 minutos de expiración
+    );
+
+    try {
+      // Crear cliente de blob con SAS token
+      const blockBlobClient = new BlockBlobClient(sasData.sasUrl);
+
+      // Descargar el contenido del blob
+      const downloadResponse = await blockBlobClient.downloadToBuffer();
+
+      // Obtener metadata del blob
+      const properties = await blockBlobClient.getProperties();
+
+      // Convertir Buffer a Base64
+      const fileBase64 = downloadResponse.toString('base64');
+
+      console.log(
+        `Base64 download completed successfully: ${downloadResponse.length} bytes -> ${fileBase64.length} chars`,
+      );
+
+      return {
+        fileBase64,
+        contentType: properties.contentType || 'application/octet-stream',
+        containerName,
+        blobName,
+        fullPath: fullBlobPath,
+        size: downloadResponse.length,
+        requestId: uuidv4(),
+      };
+    } catch (error: any) {
+      console.error('Error downloading Base64 blob:', error);
 
       if (error.statusCode === 404) {
         throw new BadRequestException(ErrorMessages.BLOB_NOT_FOUND);

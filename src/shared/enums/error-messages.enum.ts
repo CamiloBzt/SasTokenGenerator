@@ -8,4 +8,11 @@ export enum ErrorMessages {
   FILE_MISSING = 'No se proporcionó archivo para cargar.',
   CONTAINER_NOT_FOUND = 'El contenedor especificado no existe.',
   BLOB_NOT_FOUND = 'El archivo especificado no existe.',
+  FILE_TOO_LARGE = 'El archivo es demasiado grande.',
+  FILE_BASE64_MISSING = 'El contenido Base64 del archivo es requerido.',
+  FILE_BASE64_INVALID = 'El contenido Base64 proporcionado es inválido.',
+  MIME_TYPE_MISSING = 'El tipo MIME es requerido.',
+  MIME_TYPE_NOT_ALLOWED = 'Tipo de archivo no permitido.',
+  BASE64_CONTENT_INVALID = 'Contenido Base64 inválido proporcionado.',
+  BASE64_EMPTY_BUFFER = 'El contenido Base64 resultó en un buffer vacío.',
 }

@@ -5,6 +5,31 @@ import { EventHubInterceptor } from './interceptors/event-hub.interceptor';
 import { SasModule } from './sas/sas.module';
 
 export function createAppModule() {
+  const createProviders = () => {
+    const providers = [];
+    const connectionString = process.env.EVENT_HUB_CONNECTION_S;
+    const eventHubName = process.env.EVENT_HUB_QUEUE;
+
+    if (
+      connectionString &&
+      eventHubName &&
+      connectionString.trim() !== '' &&
+      eventHubName.trim() !== ''
+    ) {
+      providers.push({
+        provide: 'APP_INTERCEPTOR',
+        useFactory: () => {
+          return new EventHubInterceptor(connectionString, eventHubName);
+        },
+      });
+    } else {
+      console.warn(
+        'EventHub interceptor not registered: Missing or empty EVENT_HUB_CONNECTION_S or EVENT_HUB_QUEUE environment variables',
+      );
+    }
+
+    return providers;
+  };
   @Module({
     imports: [
       AppConfigModule,
@@ -17,16 +42,7 @@ export function createAppModule() {
       ]),
     ],
     controllers: [],
-    providers: [
-      // {
-      //   provide: 'APP_INTERCEPTOR',
-      //   useFactory: () => {
-      //     const connectionString = process.env.EVENT_HUB_CONNECTION_S!;
-      //     const eventHubName = process.env.EVENT_HUB_QUEUE!;
-      //     return new EventHubInterceptor(connectionString, eventHubName);
-      //   },
-      // },
-    ],
+    providers: createProviders(),
   })
   class AppModule {}
   return AppModule;

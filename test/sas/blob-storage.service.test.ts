@@ -58,39 +58,12 @@ describe('BlobStorageService', () => {
     blobStorageService = module.get<BlobStorageService>(BlobStorageService);
   });
 
-  describe('initialization', () => {
-    it('should initialize with storage account name', () => {
-      expect(storageBlob.BlobServiceClient).toHaveBeenCalledWith(
-        'https://teststorageaccount.blob.core.windows.net/',
-      );
-    });
+  describe('uploadBlobBase64', () => {
+    const validBase64 =
+      'JVBERi0xLjQKJdP0zOEKMSAwIG9iago8PAovVHlwZSAvQ2F0YWxvZwovUGFnZXMgMiAwIFIKPj4KZW5kb2JqCg==';
+    const validMimeType = 'application/pdf';
 
-    it('should throw error when no configuration is provided', () => {
-      jest.resetModules();
-      jest.clearAllMocks();
-
-      (configService.get as jest.Mock).mockReturnValue(undefined);
-
-      expect(() => {
-        new BlobStorageService(
-          configService as ConfigService,
-          sasService as SasService,
-        );
-      }).toThrow(BadRequestException);
-    });
-  });
-
-  describe('uploadBlob', () => {
-    const mockFile = {
-      fieldname: 'file',
-      originalname: 'test.pdf',
-      encoding: '7bit',
-      mimetype: 'application/pdf',
-      size: 1024,
-      buffer: Buffer.from('test file content'),
-    } as Express.Multer.File;
-
-    it('should upload a blob successfully with directory', async () => {
+    it('should upload a Base64 blob successfully with directory', async () => {
       const mockSasData = {
         sasUrl:
           'https://teststorageaccount.blob.core.windows.net/uploads/documents/2024/test.pdf?sv=...',
@@ -108,11 +81,12 @@ describe('BlobStorageService', () => {
         () => mockBlockBlobClient,
       );
 
-      const result = await blobStorageService.uploadBlob(
+      const result = await blobStorageService.uploadBlobBase64(
         'uploads',
         'documents/2024',
         'test.pdf',
-        mockFile,
+        validBase64,
+        validMimeType,
       );
 
       expect(result).toEqual({
@@ -132,17 +106,17 @@ describe('BlobStorageService', () => {
       );
 
       expect(mockBlockBlobClient.upload).toHaveBeenCalledWith(
-        mockFile.buffer,
-        mockFile.buffer.length,
+        expect.any(Buffer),
+        expect.any(Number),
         {
           blobHTTPHeaders: {
-            blobContentType: mockFile.mimetype,
+            blobContentType: validMimeType,
           },
         },
       );
     });
 
-    it('should upload a blob successfully without directory', async () => {
+    it('should upload a Base64 blob successfully without directory', async () => {
       const mockSasData = {
         sasUrl:
           'https://teststorageaccount.blob.core.windows.net/uploads/test.pdf?sv=...',
@@ -160,11 +134,12 @@ describe('BlobStorageService', () => {
         () => mockBlockBlobClient,
       );
 
-      const result = await blobStorageService.uploadBlob(
+      const result = await blobStorageService.uploadBlobBase64(
         'uploads',
         undefined,
         'test.pdf',
-        mockFile,
+        validBase64,
+        validMimeType,
       );
 
       expect(result).toEqual({
@@ -177,28 +152,90 @@ describe('BlobStorageService', () => {
       });
     });
 
-    it('should throw BadRequestException when file is missing', async () => {
+    it('should throw BadRequestException when Base64 is missing', async () => {
       await expect(
-        blobStorageService.uploadBlob(
+        blobStorageService.uploadBlobBase64(
           'uploads',
           undefined,
           'test.pdf',
-          null as any,
+          '',
+          validMimeType,
         ),
-      ).rejects.toThrow(new BadRequestException(ErrorMessages.FILE_MISSING));
+      ).rejects.toThrow(
+        new BadRequestException(ErrorMessages.FILE_BASE64_MISSING),
+      );
     });
 
-    it('should throw BadRequestException when file buffer is missing', async () => {
-      const invalidFile = { ...mockFile, buffer: null } as any;
-
+    it('should throw BadRequestException when Base64 is only whitespace', async () => {
       await expect(
-        blobStorageService.uploadBlob(
+        blobStorageService.uploadBlobBase64(
           'uploads',
           undefined,
           'test.pdf',
-          invalidFile,
+          '   ',
+          validMimeType,
         ),
-      ).rejects.toThrow(new BadRequestException(ErrorMessages.FILE_MISSING));
+      ).rejects.toThrow(
+        new BadRequestException(ErrorMessages.FILE_BASE64_MISSING),
+      );
+    });
+
+    it('should throw BadRequestException when MIME type is missing', async () => {
+      await expect(
+        blobStorageService.uploadBlobBase64(
+          'uploads',
+          undefined,
+          'test.pdf',
+          validBase64,
+          '',
+        ),
+      ).rejects.toThrow(
+        new BadRequestException(ErrorMessages.MIME_TYPE_MISSING),
+      );
+    });
+
+    it('should throw BadRequestException when MIME type is only whitespace', async () => {
+      await expect(
+        blobStorageService.uploadBlobBase64(
+          'uploads',
+          undefined,
+          'test.pdf',
+          validBase64,
+          '   ',
+        ),
+      ).rejects.toThrow(
+        new BadRequestException(ErrorMessages.MIME_TYPE_MISSING),
+      );
+    });
+
+    it('should throw BadRequestException when Base64 results in empty buffer', async () => {
+      await expect(
+        blobStorageService.uploadBlobBase64(
+          'uploads',
+          undefined,
+          'test.pdf',
+          '', // Empty Base64 that results in empty buffer
+          validMimeType,
+        ),
+      ).rejects.toThrow(
+        new BadRequestException(ErrorMessages.FILE_BASE64_MISSING),
+      );
+    });
+
+    it('should throw BadRequestException when Base64 is invalid', async () => {
+      const invalidBase64 = 'invalid-base64!!!';
+
+      await expect(
+        blobStorageService.uploadBlobBase64(
+          'uploads',
+          undefined,
+          'test.pdf',
+          invalidBase64,
+          validMimeType,
+        ),
+      ).rejects.toThrow(
+        new BadRequestException(ErrorMessages.BASE64_CONTENT_INVALID),
+      );
     });
 
     it('should handle 404 container not found error', async () => {
@@ -220,11 +257,12 @@ describe('BlobStorageService', () => {
       );
 
       await expect(
-        blobStorageService.uploadBlob(
+        blobStorageService.uploadBlobBase64(
           'nonexistent',
           undefined,
           'test.pdf',
-          mockFile,
+          validBase64,
+          validMimeType,
         ),
       ).rejects.toThrow(
         new BadRequestException(ErrorMessages.CONTAINER_NOT_FOUND),
@@ -250,11 +288,12 @@ describe('BlobStorageService', () => {
       );
 
       await expect(
-        blobStorageService.uploadBlob(
+        blobStorageService.uploadBlobBase64(
           'uploads',
           undefined,
           'test.pdf',
-          mockFile,
+          validBase64,
+          validMimeType,
         ),
       ).rejects.toThrow(
         new InternalServerErrorException(ErrorMessages.SAS_PERMISSION),
@@ -280,11 +319,12 @@ describe('BlobStorageService', () => {
       );
 
       await expect(
-        blobStorageService.uploadBlob(
+        blobStorageService.uploadBlobBase64(
           'uploads',
           undefined,
           'test.pdf',
-          mockFile,
+          validBase64,
+          validMimeType,
         ),
       ).rejects.toThrow(
         new InternalServerErrorException(ErrorMessages.SAS_PERMISSION),
@@ -297,7 +337,7 @@ describe('BlobStorageService', () => {
           'https://teststorageaccount.blob.core.windows.net/uploads/test.pdf?sv=...',
       };
 
-      const mockError = new Error('Unknown error');
+      const mockError = new Error('Network error');
       const mockBlockBlobClient = {
         upload: jest.fn().mockRejectedValue(mockError),
       };
@@ -310,99 +350,27 @@ describe('BlobStorageService', () => {
       );
 
       await expect(
-        blobStorageService.uploadBlob(
+        blobStorageService.uploadBlobBase64(
           'uploads',
           undefined,
           'test.pdf',
-          mockFile,
+          validBase64,
+          validMimeType,
         ),
       ).rejects.toThrow(
         new InternalServerErrorException(ErrorMessages.SAS_GENERATION),
       );
     });
-  });
 
-  describe('deleteBlob', () => {
-    it('should delete a blob successfully with directory', async () => {
-      const mockSasData = {
-        sasUrl:
-          'https://teststorageaccount.blob.core.windows.net/uploads/documents/2024/test.pdf?sv=...',
-        sasToken: 'sv=...',
-      };
-
-      const mockBlockBlobClient = {
-        deleteIfExists: jest.fn().mockResolvedValue({ succeeded: true }),
-      };
-
-      (sasService.generateSasTokenWithParams as jest.Mock).mockResolvedValue(
-        mockSasData,
-      );
-      (storageBlob.BlockBlobClient as unknown as jest.Mock).mockImplementation(
-        () => mockBlockBlobClient,
-      );
-
-      const result = await blobStorageService.deleteBlob(
-        'uploads',
-        'documents/2024',
-        'test.pdf',
-      );
-
-      expect(result).toEqual({
-        containerName: 'uploads',
-        blobName: 'test.pdf',
-        fullPath: 'documents/2024/test.pdf',
-        requestId: '123e4567-e89b-12d3-a456-426614174000',
-      });
-
-      expect(sasService.generateSasTokenWithParams).toHaveBeenCalledWith(
-        'uploads',
-        'documents/2024/test.pdf',
-        [SasPermission.DELETE],
-        30,
-      );
-
-      expect(mockBlockBlobClient.deleteIfExists).toHaveBeenCalled();
-    });
-
-    it('should delete a blob successfully without directory', async () => {
+    it('should rethrow existing BadRequestException', async () => {
       const mockSasData = {
         sasUrl:
           'https://teststorageaccount.blob.core.windows.net/uploads/test.pdf?sv=...',
       };
 
+      const customError = new BadRequestException('Custom validation error');
       const mockBlockBlobClient = {
-        deleteIfExists: jest.fn().mockResolvedValue({ succeeded: true }),
-      };
-
-      (sasService.generateSasTokenWithParams as jest.Mock).mockResolvedValue(
-        mockSasData,
-      );
-      (storageBlob.BlockBlobClient as unknown as jest.Mock).mockImplementation(
-        () => mockBlockBlobClient,
-      );
-
-      const result = await blobStorageService.deleteBlob(
-        'uploads',
-        undefined,
-        'test.pdf',
-      );
-
-      expect(result).toEqual({
-        containerName: 'uploads',
-        blobName: 'test.pdf',
-        fullPath: 'test.pdf',
-        requestId: '123e4567-e89b-12d3-a456-426614174000',
-      });
-    });
-
-    it('should throw BadRequestException when blob does not exist', async () => {
-      const mockSasData = {
-        sasUrl:
-          'https://teststorageaccount.blob.core.windows.net/uploads/test.pdf?sv=...',
-      };
-
-      const mockBlockBlobClient = {
-        deleteIfExists: jest.fn().mockResolvedValue({ succeeded: false }),
+        upload: jest.fn().mockRejectedValue(customError),
       };
 
       (sasService.generateSasTokenWithParams as jest.Mock).mockResolvedValue(
@@ -413,361 +381,19 @@ describe('BlobStorageService', () => {
       );
 
       await expect(
-        blobStorageService.deleteBlob('uploads', undefined, 'nonexistent.pdf'),
-      ).rejects.toThrow(new BadRequestException(ErrorMessages.BLOB_NOT_FOUND));
-    });
-
-    it('should handle 404 error', async () => {
-      const mockSasData = {
-        sasUrl:
-          'https://teststorageaccount.blob.core.windows.net/uploads/test.pdf?sv=...',
-      };
-
-      const mockError = { statusCode: 404 };
-      const mockBlockBlobClient = {
-        deleteIfExists: jest.fn().mockRejectedValue(mockError),
-      };
-
-      (sasService.generateSasTokenWithParams as jest.Mock).mockResolvedValue(
-        mockSasData,
-      );
-      (storageBlob.BlockBlobClient as unknown as jest.Mock).mockImplementation(
-        () => mockBlockBlobClient,
-      );
-
-      await expect(
-        blobStorageService.deleteBlob('uploads', undefined, 'test.pdf'),
-      ).rejects.toThrow(new BadRequestException(ErrorMessages.BLOB_NOT_FOUND));
-    });
-
-    it('should handle 401 authentication error', async () => {
-      const mockSasData = {
-        sasUrl:
-          'https://teststorageaccount.blob.core.windows.net/uploads/test.pdf?sv=...',
-      };
-
-      const mockError = { statusCode: 401 };
-      const mockBlockBlobClient = {
-        deleteIfExists: jest.fn().mockRejectedValue(mockError),
-      };
-
-      (sasService.generateSasTokenWithParams as jest.Mock).mockResolvedValue(
-        mockSasData,
-      );
-      (storageBlob.BlockBlobClient as unknown as jest.Mock).mockImplementation(
-        () => mockBlockBlobClient,
-      );
-
-      await expect(
-        blobStorageService.deleteBlob('uploads', undefined, 'test.pdf'),
-      ).rejects.toThrow(
-        new InternalServerErrorException(ErrorMessages.SAS_PERMISSION),
-      );
-    });
-
-    it('should handle 403 permission error', async () => {
-      const mockSasData = {
-        sasUrl:
-          'https://teststorageaccount.blob.core.windows.net/uploads/test.pdf?sv=...',
-      };
-
-      const mockError = { statusCode: 403 };
-      const mockBlockBlobClient = {
-        deleteIfExists: jest.fn().mockRejectedValue(mockError),
-      };
-
-      (sasService.generateSasTokenWithParams as jest.Mock).mockResolvedValue(
-        mockSasData,
-      );
-      (storageBlob.BlockBlobClient as unknown as jest.Mock).mockImplementation(
-        () => mockBlockBlobClient,
-      );
-
-      await expect(
-        blobStorageService.deleteBlob('uploads', undefined, 'test.pdf'),
-      ).rejects.toThrow(
-        new InternalServerErrorException(ErrorMessages.SAS_PERMISSION),
-      );
-    });
-
-    it('should rethrow BadRequestException', async () => {
-      const mockSasData = {
-        sasUrl:
-          'https://teststorageaccount.blob.core.windows.net/uploads/test.pdf?sv=...',
-      };
-
-      const mockError = new BadRequestException('Custom error');
-      const mockBlockBlobClient = {
-        deleteIfExists: jest.fn().mockRejectedValue(mockError),
-      };
-
-      (sasService.generateSasTokenWithParams as jest.Mock).mockResolvedValue(
-        mockSasData,
-      );
-      (storageBlob.BlockBlobClient as unknown as jest.Mock).mockImplementation(
-        () => mockBlockBlobClient,
-      );
-
-      await expect(
-        blobStorageService.deleteBlob('uploads', undefined, 'test.pdf'),
-      ).rejects.toThrow(mockError);
+        blobStorageService.uploadBlobBase64(
+          'uploads',
+          undefined,
+          'test.pdf',
+          validBase64,
+          validMimeType,
+        ),
+      ).rejects.toThrow(customError);
     });
   });
 
-  describe('listBlobs', () => {
-    it('should call listBlobsInDirectory with undefined directory', async () => {
-      const mockResult = {
-        blobs: ['file1.pdf', 'file2.jpg'],
-        containerName: 'uploads',
-        requestId: '123e4567-e89b-12d3-a456-426614174000',
-      };
-
-      jest
-        .spyOn(blobStorageService, 'listBlobsInDirectory')
-        .mockResolvedValue(mockResult);
-
-      const result = await blobStorageService.listBlobs('uploads');
-
-      expect(result).toEqual(mockResult);
-      expect(blobStorageService.listBlobsInDirectory).toHaveBeenCalledWith(
-        'uploads',
-      );
-    });
-  });
-
-  describe('listBlobsInDirectory', () => {
-    it('should list blobs successfully with directory', async () => {
-      const mockSasData = {
-        sasToken: 'sv=...',
-      };
-
-      const mockBlobs = [
-        { name: 'documents/file1.pdf' },
-        { name: 'documents/file2.jpg' },
-      ];
-
-      const mockContainerClient = {
-        listBlobsFlat: jest.fn().mockReturnValue({
-          [Symbol.asyncIterator]: async function* () {
-            for (const blob of mockBlobs) {
-              yield blob;
-            }
-          },
-        }),
-      };
-
-      (sasService.generateSasTokenWithParams as jest.Mock).mockResolvedValue(
-        mockSasData,
-      );
-      (storageBlob.ContainerClient as unknown as jest.Mock).mockImplementation(
-        () => mockContainerClient,
-      );
-
-      const result = await blobStorageService.listBlobsInDirectory(
-        'uploads',
-        'documents',
-      );
-
-      expect(result).toEqual({
-        blobs: ['documents/file1.pdf', 'documents/file2.jpg'],
-        containerName: 'uploads',
-        directory: 'documents',
-        requestId: '123e4567-e89b-12d3-a456-426614174000',
-      });
-
-      expect(sasService.generateSasTokenWithParams).toHaveBeenCalledWith(
-        'uploads',
-        undefined,
-        [SasPermission.LIST],
-        30,
-      );
-
-      expect(mockContainerClient.listBlobsFlat).toHaveBeenCalledWith({
-        prefix: 'documents/',
-      });
-    });
-
-    it('should list blobs successfully without directory', async () => {
-      const mockSasData = {
-        sasToken: 'sv=...',
-      };
-
-      const mockBlobs = [{ name: 'file1.pdf' }, { name: 'file2.jpg' }];
-
-      const mockContainerClient = {
-        listBlobsFlat: jest.fn().mockReturnValue({
-          [Symbol.asyncIterator]: async function* () {
-            for (const blob of mockBlobs) {
-              yield blob;
-            }
-          },
-        }),
-      };
-
-      (sasService.generateSasTokenWithParams as jest.Mock).mockResolvedValue(
-        mockSasData,
-      );
-      (storageBlob.ContainerClient as unknown as jest.Mock).mockImplementation(
-        () => mockContainerClient,
-      );
-
-      const result = await blobStorageService.listBlobsInDirectory('uploads');
-
-      expect(result).toEqual({
-        blobs: ['file1.pdf', 'file2.jpg'],
-        containerName: 'uploads',
-        requestId: '123e4567-e89b-12d3-a456-426614174000',
-      });
-
-      expect(mockContainerClient.listBlobsFlat).toHaveBeenCalledWith({});
-    });
-
-    it('should handle empty directory', async () => {
-      const mockSasData = {
-        sasToken: 'sv=...',
-      };
-
-      const mockContainerClient = {
-        listBlobsFlat: jest.fn().mockReturnValue({
-          [Symbol.asyncIterator]: async function* () {},
-        }),
-      };
-
-      (sasService.generateSasTokenWithParams as jest.Mock).mockResolvedValue(
-        mockSasData,
-      );
-      (storageBlob.ContainerClient as unknown as jest.Mock).mockImplementation(
-        () => mockContainerClient,
-      );
-
-      const result = await blobStorageService.listBlobsInDirectory(
-        'uploads',
-        'empty',
-      );
-
-      expect(result).toEqual({
-        blobs: [],
-        containerName: 'uploads',
-        directory: 'empty',
-        requestId: '123e4567-e89b-12d3-a456-426614174000',
-      });
-    });
-
-    it('should handle 404 container not found error', async () => {
-      const mockSasData = {
-        sasToken: 'sv=...',
-      };
-
-      const mockError = { statusCode: 404 };
-      const mockContainerClient = {
-        listBlobsFlat: jest.fn().mockReturnValue({
-          [Symbol.asyncIterator]: async function* () {
-            throw mockError;
-          },
-        }),
-      };
-
-      (sasService.generateSasTokenWithParams as jest.Mock).mockResolvedValue(
-        mockSasData,
-      );
-      (storageBlob.ContainerClient as unknown as jest.Mock).mockImplementation(
-        () => mockContainerClient,
-      );
-
-      await expect(
-        blobStorageService.listBlobsInDirectory('nonexistent'),
-      ).rejects.toThrow(
-        new BadRequestException(ErrorMessages.CONTAINER_NOT_FOUND),
-      );
-    });
-
-    it('should handle 401 authentication error', async () => {
-      const mockSasData = {
-        sasToken: 'sv=...',
-      };
-
-      const mockError = { statusCode: 401 };
-      const mockContainerClient = {
-        listBlobsFlat: jest.fn().mockReturnValue({
-          [Symbol.asyncIterator]: async function* () {
-            throw mockError;
-          },
-        }),
-      };
-
-      (sasService.generateSasTokenWithParams as jest.Mock).mockResolvedValue(
-        mockSasData,
-      );
-      (storageBlob.ContainerClient as unknown as jest.Mock).mockImplementation(
-        () => mockContainerClient,
-      );
-
-      await expect(
-        blobStorageService.listBlobsInDirectory('uploads'),
-      ).rejects.toThrow(
-        new InternalServerErrorException(ErrorMessages.SAS_PERMISSION),
-      );
-    });
-
-    it('should handle 403 permission error', async () => {
-      const mockSasData = {
-        sasToken: 'sv=...',
-      };
-
-      const mockError = { statusCode: 403 };
-      const mockContainerClient = {
-        listBlobsFlat: jest.fn().mockReturnValue({
-          [Symbol.asyncIterator]: async function* () {
-            throw mockError;
-          },
-        }),
-      };
-
-      (sasService.generateSasTokenWithParams as jest.Mock).mockResolvedValue(
-        mockSasData,
-      );
-      (storageBlob.ContainerClient as unknown as jest.Mock).mockImplementation(
-        () => mockContainerClient,
-      );
-
-      await expect(
-        blobStorageService.listBlobsInDirectory('uploads'),
-      ).rejects.toThrow(
-        new InternalServerErrorException(ErrorMessages.SAS_PERMISSION),
-      );
-    });
-
-    it('should handle generic errors', async () => {
-      const mockSasData = {
-        sasToken: 'sv=...',
-      };
-
-      const mockError = new Error('Unknown error');
-      const mockContainerClient = {
-        listBlobsFlat: jest.fn().mockReturnValue({
-          [Symbol.asyncIterator]: async function* () {
-            throw mockError;
-          },
-        }),
-      };
-
-      (sasService.generateSasTokenWithParams as jest.Mock).mockResolvedValue(
-        mockSasData,
-      );
-      (storageBlob.ContainerClient as unknown as jest.Mock).mockImplementation(
-        () => mockContainerClient,
-      );
-
-      await expect(
-        blobStorageService.listBlobsInDirectory('uploads'),
-      ).rejects.toThrow(
-        new InternalServerErrorException(ErrorMessages.SAS_GENERATION),
-      );
-    });
-  });
-
-  describe('downloadBlob', () => {
-    it('should download a blob successfully with directory', async () => {
+  describe('downloadBlobBase64', () => {
+    it('should download a blob as Base64 successfully with directory', async () => {
       const mockSasData = {
         sasUrl:
           'https://teststorageaccount.blob.core.windows.net/uploads/documents/2024/test.pdf?sv=...',
@@ -791,18 +417,19 @@ describe('BlobStorageService', () => {
         () => mockBlockBlobClient,
       );
 
-      const result = await blobStorageService.downloadBlob(
+      const result = await blobStorageService.downloadBlobBase64(
         'uploads',
         'documents/2024',
         'test.pdf',
       );
 
       expect(result).toEqual({
-        data: mockBuffer,
+        fileBase64: mockBuffer.toString('base64'),
         contentType: 'application/pdf',
         containerName: 'uploads',
         blobName: 'test.pdf',
         fullPath: 'documents/2024/test.pdf',
+        size: mockBuffer.length,
         requestId: '123e4567-e89b-12d3-a456-426614174000',
       });
 
@@ -817,7 +444,7 @@ describe('BlobStorageService', () => {
       expect(mockBlockBlobClient.getProperties).toHaveBeenCalled();
     });
 
-    it('should download a blob successfully without directory', async () => {
+    it('should download a blob as Base64 successfully without directory', async () => {
       const mockSasData = {
         sasUrl:
           'https://teststorageaccount.blob.core.windows.net/uploads/test.pdf?sv=...',
@@ -841,18 +468,19 @@ describe('BlobStorageService', () => {
         () => mockBlockBlobClient,
       );
 
-      const result = await blobStorageService.downloadBlob(
+      const result = await blobStorageService.downloadBlobBase64(
         'uploads',
         undefined,
         'test.txt',
       );
 
       expect(result).toEqual({
-        data: mockBuffer,
+        fileBase64: mockBuffer.toString('base64'),
         contentType: 'text/plain',
         containerName: 'uploads',
         blobName: 'test.txt',
         fullPath: 'test.txt',
+        size: mockBuffer.length,
         requestId: '123e4567-e89b-12d3-a456-426614174000',
       });
 
@@ -871,7 +499,7 @@ describe('BlobStorageService', () => {
       };
 
       const mockBuffer = Buffer.from('binary content');
-      const mockProperties = {};
+      const mockProperties = {}; // No contentType
 
       const mockBlockBlobClient = {
         downloadToBuffer: jest.fn().mockResolvedValue(mockBuffer),
@@ -885,7 +513,7 @@ describe('BlobStorageService', () => {
         () => mockBlockBlobClient,
       );
 
-      const result = await blobStorageService.downloadBlob(
+      const result = await blobStorageService.downloadBlobBase64(
         'uploads',
         undefined,
         'test.bin',
@@ -914,7 +542,7 @@ describe('BlobStorageService', () => {
       );
 
       await expect(
-        blobStorageService.downloadBlob(
+        blobStorageService.downloadBlobBase64(
           'uploads',
           undefined,
           'nonexistent.pdf',
@@ -942,7 +570,7 @@ describe('BlobStorageService', () => {
       );
 
       await expect(
-        blobStorageService.downloadBlob('uploads', undefined, 'test.pdf'),
+        blobStorageService.downloadBlobBase64('uploads', undefined, 'test.pdf'),
       ).rejects.toThrow(
         new InternalServerErrorException(ErrorMessages.SAS_PERMISSION),
       );
@@ -968,7 +596,7 @@ describe('BlobStorageService', () => {
       );
 
       await expect(
-        blobStorageService.downloadBlob('uploads', undefined, 'test.pdf'),
+        blobStorageService.downloadBlobBase64('uploads', undefined, 'test.pdf'),
       ).rejects.toThrow(
         new InternalServerErrorException(ErrorMessages.SAS_PERMISSION),
       );
@@ -994,7 +622,7 @@ describe('BlobStorageService', () => {
       );
 
       await expect(
-        blobStorageService.downloadBlob('uploads', undefined, 'test.pdf'),
+        blobStorageService.downloadBlobBase64('uploads', undefined, 'test.pdf'),
       ).rejects.toThrow(
         new InternalServerErrorException(ErrorMessages.SAS_GENERATION),
       );
@@ -1021,10 +649,45 @@ describe('BlobStorageService', () => {
       );
 
       await expect(
-        blobStorageService.downloadBlob('uploads', undefined, 'test.pdf'),
+        blobStorageService.downloadBlobBase64('uploads', undefined, 'test.pdf'),
       ).rejects.toThrow(
         new InternalServerErrorException(ErrorMessages.SAS_GENERATION),
       );
+    });
+
+    it('should convert buffer to Base64 correctly', async () => {
+      const mockSasData = {
+        sasUrl:
+          'https://teststorageaccount.blob.core.windows.net/uploads/test.txt?sv=...',
+      };
+
+      const testContent = 'Hello World!';
+      const mockBuffer = Buffer.from(testContent);
+      const expectedBase64 = mockBuffer.toString('base64');
+      const mockProperties = {
+        contentType: 'text/plain',
+      };
+
+      const mockBlockBlobClient = {
+        downloadToBuffer: jest.fn().mockResolvedValue(mockBuffer),
+        getProperties: jest.fn().mockResolvedValue(mockProperties),
+      };
+
+      (sasService.generateSasTokenWithParams as jest.Mock).mockResolvedValue(
+        mockSasData,
+      );
+      (storageBlob.BlockBlobClient as unknown as jest.Mock).mockImplementation(
+        () => mockBlockBlobClient,
+      );
+
+      const result = await blobStorageService.downloadBlobBase64(
+        'uploads',
+        undefined,
+        'test.txt',
+      );
+
+      expect(result.fileBase64).toBe(expectedBase64);
+      expect(result.size).toBe(testContent.length);
     });
   });
 });

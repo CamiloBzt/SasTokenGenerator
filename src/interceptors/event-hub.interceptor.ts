@@ -47,8 +47,16 @@ export class EventHubInterceptor implements NestInterceptor {
     // Guardamos el método json original de Express
     const originalJson = response.json;
 
+    // Sobrescribimos el método json para capturar el objeto que se envía
+    response.json = function (payload: any) {
+      response.locals.__bodyToLog = payload; // Guardamos el body
+      return originalJson.call(this, payload);
+    };
+
     return next.handle().pipe(
       tap(async (responseData) => {
+        // Recogemos el objeto que mandó el controlador
+        const finalResponse = response.locals.__bodyToLog;
         const endTime = Date.now();
 
         try {
@@ -65,7 +73,7 @@ export class EventHubInterceptor implements NestInterceptor {
                 timeOutput: new Date(endTime).toISOString(),
                 timeExecution: endTime - startTime,
                 requestBody: body,
-                responseBody: originalJson,
+                responseBody: finalResponse,
                 codeError: String(response.statusCode),
                 tracerError: '',
                 componentName: 'pendig-seguridad-ms-gestion-autorizacion',

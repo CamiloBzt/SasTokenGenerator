@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { NextFunction, Request, Response } from 'express';
+import * as bodyParser from 'body-parser';
 import { createAppModule } from './app.module';
 import { AppConfigService } from './config/config.service';
 import { HttpExceptionFilter } from './shared/filters/http-exception.filter';
@@ -10,6 +11,20 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   app.enableCors();
+
+  app.use(
+    bodyParser.json({
+      limit: '10mb',
+    }),
+  );
+
+  app.use(
+    bodyParser.urlencoded({
+      limit: '10mb',
+      extended: true,
+    }),
+  );
+
   app.use((req: Request, _res: Response, next: NextFunction) => {
     if (!req.headers['x-forwarded-for']) {
       req.headers['x-forwarded-for'] = req.socket.remoteAddress || '';
