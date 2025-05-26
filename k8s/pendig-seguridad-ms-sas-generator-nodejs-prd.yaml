@@ -119,31 +119,6 @@ spec:
                 configMapKeyRef:
                   name: ms-pendigital-configmap
                   key: port
-            - name: DB_TYPE
-              valueFrom:
-                configMapKeyRef:
-                  name: ms-pendigital-configmap
-                  key: db_type
-            - name: PENDIG_MONGODB_DB
-              valueFrom:
-                configMapKeyRef:
-                  name: ms-pendigital-configmap
-                  key: pendig_mongodb_db
-            - name: PENDIG_MONGODB_HOST
-              valueFrom:
-                configMapKeyRef:
-                  name: ms-pendigital-configmap
-                  key: pendig_mongodb_host
-            - name: PENDIG_MONGODB_USER
-              valueFrom:
-                secretKeyRef:
-                  name: bd-pendig-user-security
-                  key: BD-PENDIG-USER-SECURITY
-            - name: PENDIG_MONGODB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: bd-pendig-password-security
-                  key: BD-PENDIG-PASSWORD-SECURITY
             - name: EVENT_HUB_QUEUE
               valueFrom:
                 configMapKeyRef:
@@ -194,6 +169,51 @@ spec:
                 configMapKeyRef:
                   name: ms-pendigital-configmap
                   key: log-logging-filter-exclude
+            - name: PENDIG-NAME-STORAGE-ACCOUNT
+              valueFrom:
+                secretKeyRef:
+                  name: pendig-name-storage-account
+                  key: PENDIG-NAME-STORAGE-ACCOUNT
+            - name: PENDIG-CLIENT-ID-TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: pendig-client-id-token
+                  key: PENDIG-CLIENT-ID-TOKEN
+            - name: PENDIG-CLIENT-SECRET-TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: pendig-client-secret-token
+                  key: PENDIG-CLIENT-SECRET-TOKEN
+            - name: PENDIG-ID-TENANT
+              valueFrom:
+                secretKeyRef:
+                  name: pendig-id-tenant
+                  key: PENDIG-ID-TENANT
+            - name: PENDIG-NAME-STORAGE-ONBOARDING
+              valueFrom:
+                secretKeyRef:
+                  name: pendig-name-storage-onboarding
+                  key: PENDIG-NAME-STORAGE-ONBOARDING
+            - name: PENDIG-NAME-STORAGE-CUENTAS
+              valueFrom:
+                secretKeyRef:
+                  name: pendig-name-storage-cuentas
+                  key: PENDIG-NAME-STORAGE-CUENTAS
+            - name: PENDIG-NAME-STORAGE-RECAUDOS
+              valueFrom:
+                secretKeyRef:
+                  name: pendig-name-storage-recaudos
+                  key: PENDIG-NAME-STORAGE-RECAUDOS
+            - name: PENDIG-NAME-USERNAME-TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: pendig-name-username-token
+                  key: PENDIG-NAME-USERNAME-TOKEN
+            - name: PENDIG-CLAVE-STORAGE-ACCOUNT
+              valueFrom:
+                secretKeyRef:
+                  name: pendig-clave-storage-account
+                  key: PENDIG-CLAVE-STORAGE-ACCOUNT
 
 ---
 apiVersion: v1

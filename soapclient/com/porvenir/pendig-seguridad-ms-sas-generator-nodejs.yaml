@@ -22,7 +22,15 @@
                                 {
                                   'example':
                                     {
-                                      'sasUrl': 'https://exampleaccount.blob.core.windows.net/uploads/file.pdf?sv=2024-04-03&st=2024-04-03T18:00:00Z&se=2024-04-03T18:05:00Z&sr=b&sp=r&sig=...',
+                                      'status':
+                                        {
+                                          'statusCode': 200,
+                                          'statusDescription': 'Operación completada con éxito.',
+                                        },
+                                      'data':
+                                        {
+                                          'sasUrl': 'https://exampleaccount.blob.core.windows.net/uploads/file.pdf?sv=2024-04-03&st=2024-04-03T18:00:00Z&se=2024-04-03T18:05:00Z&sr=b&sp=r&sig=...',
+                                        },
                                     },
                                 },
                             },
@@ -31,6 +39,24 @@
                   '400':
                     {
                       'description': 'Falta la URL o la solicitud es inválida',
+                      'content':
+                        {
+                          'application/json':
+                            {
+                              'schema':
+                                {
+                                  'example':
+                                    {
+                                      'status':
+                                        {
+                                          'statusCode': 400,
+                                          'statusDescription': 'Falta la URL del blob o la solicitud es inválida.',
+                                        },
+                                      'data': { 'sasUrl': null },
+                                    },
+                                },
+                            },
+                        },
                     },
                 },
               'summary': 'Genera una URL con SAS Token',

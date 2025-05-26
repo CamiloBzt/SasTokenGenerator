@@ -18,14 +18,14 @@ export function createAppModule() {
     ],
     controllers: [],
     providers: [
-      {
-        provide: 'APP_INTERCEPTOR',
-        useFactory: () => {
-          const connectionString = process.env.EVENT_HUB_CONNECTION_S!;
-          const eventHubName = process.env.EVENT_HUB_QUEUE!;
-          return new EventHubInterceptor(connectionString, eventHubName);
-        },
-      },
+      // {
+      //   provide: 'APP_INTERCEPTOR',
+      //   useFactory: () => {
+      //     const connectionString = process.env.EVENT_HUB_CONNECTION_S!;
+      //     const eventHubName = process.env.EVENT_HUB_QUEUE!;
+      //     return new EventHubInterceptor(connectionString, eventHubName);
+      //   },
+      // },
     ],
   })
   class AppModule {}

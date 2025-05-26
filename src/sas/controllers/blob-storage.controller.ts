@@ -1,28 +1,26 @@
 import {
   Body,
   Controller,
-  Delete,
-  Get,
   HttpCode,
   HttpStatus,
-  Param,
   Post,
-  Query,
   Res,
   UploadedFile,
-  UseInterceptors,
+  UseInterceptors
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiBody,
   ApiConsumes,
   ApiOperation,
-  ApiParam,
   ApiProduces,
-  ApiQuery,
   ApiResponse,
-  ApiTags,
+  ApiTags
 } from '@nestjs/swagger';
+import { DeleteBlobDto } from '@src/shared/dto/delete-blob.dto';
+import { DownloadBlobDto } from '@src/shared/dto/download-blob.dto';
+import { ListBlobsInDirectoryDto } from '@src/shared/dto/list-blobs-directory.dto';
+import { ListBlobsDto } from '@src/shared/dto/list-blobs.dto';
 import { UploadBlobDto } from '@src/shared/dto/upload-blob-dto';
 import { Response } from 'express';
 import { BlobStorageService } from '../services/blob-storage.service';
@@ -93,27 +91,32 @@ export class BlobStorageController {
     };
   }
 
-  @Get('download/:containerName/:blobName')
+  @Post('download')
   @ApiOperation({
     summary: 'Download a blob',
     description:
       'Download a file from Azure Blob Storage from a specific directory',
   })
-  @ApiParam({
-    name: 'containerName',
-    description: 'Nombre del contenedor',
-    example: 'uploads',
-  })
-  @ApiParam({
-    name: 'blobName',
-    description: 'Nombre del archivo a descargar',
-    example: 'archivo.pdf',
-  })
-  @ApiQuery({
-    name: 'directory',
-    description: 'Ruta del directorio (opcional)',
-    required: false,
-    example: 'documentos/2024',
+  @ApiBody({
+    description: 'Download blob data',
+    type: DownloadBlobDto,
+    examples: {
+      withDirectory: {
+        summary: 'Download with directory',
+        value: {
+          containerName: 'uploads',
+          blobName: 'archivo.pdf',
+          directory: 'documentos/2024',
+        },
+      },
+      withoutDirectory: {
+        summary: 'Download without directory',
+        value: {
+          containerName: 'uploads',
+          blobName: 'archivo.pdf',
+        },
+      },
+    },
   })
   @ApiProduces('application/octet-stream')
   @ApiResponse({
@@ -128,16 +131,15 @@ export class BlobStorageController {
       },
     },
   })
-  async downloadBlob(
-    @Param('containerName') containerName: string,
-    @Param('blobName') blobName: string,
-    @Query('directory') directory: string | undefined,
+  @HttpCode(HttpStatus.OK)
+  async downloadBlobPost(
+    @Body() downloadBlobDto: DownloadBlobDto,
     @Res() res: Response,
   ): Promise<void> {
     const result = await this.blobStorageService.downloadBlob(
-      containerName,
-      directory,
-      blobName,
+      downloadBlobDto.containerName,
+      downloadBlobDto.directory,
+      downloadBlobDto.blobName,
     );
 
     res.setHeader('Content-Type', result.contentType);
@@ -150,27 +152,32 @@ export class BlobStorageController {
     res.send(result.data);
   }
 
-  @Delete(':containerName/:blobName')
+  @Post('delete')
   @ApiOperation({
     summary: 'Delete a blob',
     description:
       'Delete a file from Azure Blob Storage from a specific directory',
   })
-  @ApiParam({
-    name: 'containerName',
-    description: 'Nombre del contenedor',
-    example: 'uploads',
-  })
-  @ApiParam({
-    name: 'blobName',
-    description: 'Nombre del archivo a eliminar',
-    example: 'archivo.pdf',
-  })
-  @ApiQuery({
-    name: 'directory',
-    description: 'Ruta del directorio (opcional)',
-    required: false,
-    example: 'documentos/2024',
+  @ApiBody({
+    description: 'Delete blob data',
+    type: DeleteBlobDto,
+    examples: {
+      withDirectory: {
+        summary: 'Delete with directory',
+        value: {
+          containerName: 'uploads',
+          blobName: 'archivo.pdf',
+          directory: 'documentos/2024',
+        },
+      },
+      withoutDirectory: {
+        summary: 'Delete without directory',
+        value: {
+          containerName: 'uploads',
+          blobName: 'archivo.pdf',
+        },
+      },
+    },
   })
   @ApiResponse({
     status: HttpStatus.OK,
@@ -192,11 +199,7 @@ export class BlobStorageController {
     },
   })
   @HttpCode(HttpStatus.OK)
-  async deleteBlob(
-    @Param('containerName') containerName: string,
-    @Param('blobName') blobName: string,
-    @Query('directory') directory?: string,
-  ): Promise<{
+  async deleteBlobPost(@Body() deleteBlobDto: DeleteBlobDto): Promise<{
     status: { statusCode: number; statusDescription: string };
     data: {
       message: string;
@@ -207,9 +210,9 @@ export class BlobStorageController {
     };
   }> {
     const result = await this.blobStorageService.deleteBlob(
-      containerName,
-      directory,
-      blobName,
+      deleteBlobDto.containerName,
+      deleteBlobDto.directory,
+      deleteBlobDto.blobName,
     );
 
     return {
@@ -224,15 +227,22 @@ export class BlobStorageController {
     };
   }
 
-  @Get('list/:containerName')
+  @Post('list')
   @ApiOperation({
     summary: 'List blobs',
     description: 'List all blobs in a container',
   })
-  @ApiParam({
-    name: 'containerName',
-    description: 'Nombre del contenedor',
-    example: 'uploads',
+  @ApiBody({
+    description: 'List blobs data',
+    type: ListBlobsDto,
+    examples: {
+      example: {
+        summary: 'List all blobs in container',
+        value: {
+          containerName: 'uploads',
+        },
+      },
+    },
   })
   @ApiResponse({
     status: HttpStatus.OK,
@@ -251,7 +261,8 @@ export class BlobStorageController {
       },
     },
   })
-  async listBlobs(@Param('containerName') containerName: string): Promise<{
+  @HttpCode(HttpStatus.OK)
+  async listBlobsPost(@Body() listBlobsDto: ListBlobsDto): Promise<{
     status: { statusCode: number; statusDescription: string };
     data: {
       blobs: string[];
@@ -259,7 +270,9 @@ export class BlobStorageController {
       requestId: string;
     };
   }> {
-    const result = await this.blobStorageService.listBlobs(containerName);
+    const result = await this.blobStorageService.listBlobs(
+      listBlobsDto.containerName,
+    );
 
     return {
       status: {
@@ -270,21 +283,23 @@ export class BlobStorageController {
     };
   }
 
-  @Get('list/:containerName/directory')
+  @Post('list/directory')
   @ApiOperation({
     summary: 'List blobs in directory',
     description: 'List all blobs in a specific directory within a container',
   })
-  @ApiParam({
-    name: 'containerName',
-    description: 'Nombre del contenedor',
-    example: 'uploads',
-  })
-  @ApiQuery({
-    name: 'directory',
-    description: 'Ruta del directorio',
-    required: true,
-    example: 'documentos/2024',
+  @ApiBody({
+    description: 'List blobs in directory data',
+    type: ListBlobsInDirectoryDto,
+    examples: {
+      example: {
+        summary: 'List blobs in specific directory',
+        value: {
+          containerName: 'uploads',
+          directory: 'documentos/2024',
+        },
+      },
+    },
   })
   @ApiResponse({
     status: HttpStatus.OK,
@@ -307,9 +322,9 @@ export class BlobStorageController {
       },
     },
   })
-  async listBlobsInDirectory(
-    @Param('containerName') containerName: string,
-    @Query('directory') directory: string,
+  @HttpCode(HttpStatus.OK)
+  async listBlobsInDirectoryPost(
+    @Body() listBlobsInDirectoryDto: ListBlobsInDirectoryDto,
   ): Promise<{
     status: { statusCode: number; statusDescription: string };
     data: {
@@ -320,8 +335,8 @@ export class BlobStorageController {
     };
   }> {
     const result = await this.blobStorageService.listBlobsInDirectory(
-      containerName,
-      directory,
+      listBlobsInDirectoryDto.containerName,
+      listBlobsInDirectoryDto.directory,
     );
 
     return {

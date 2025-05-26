@@ -57,13 +57,22 @@ export class SasService {
    * @param expirationMinutes - Minutos hasta la expiración (por defecto 5)
    */
   private computeValidity(expirationMinutes: number = 5): {
+    expiresOn: Date;
+  } {
+    const expiresOn = new Date(Date.now() + expirationMinutes * 60 * 1000);
+    return { expiresOn };
+  }
+
+  /**
+   * Para User Delegation Key necesitamos fechas de inicio y fin
+   * pero para el SAS token solo usaremos la fecha de fin
+   */
+  private computeValidityForUserDelegation(expirationMinutes: number = 5): {
     startsOn: Date;
     expiresOn: Date;
   } {
-    const startsOn = new Date();
-    const expiresOn = new Date(
-      startsOn.getTime() + expirationMinutes * 60 * 1000,
-    );
+    const startsOn = new Date(Date.now() - 2 * 60 * 1000);
+    const expiresOn = new Date(Date.now() + expirationMinutes * 60 * 1000);
     return { startsOn, expiresOn };
   }
 
@@ -71,8 +80,7 @@ export class SasService {
     blobServiceClient: BlobServiceClient,
     sasOptions: BlobSASSignatureValues,
     useSharedKey: boolean,
-    startsOn: Date,
-    expiresOn: Date,
+    expirationMinutes: number,
     accountName: string,
   ): Promise<string> {
     if (useSharedKey) {
@@ -80,8 +88,14 @@ export class SasService {
       const sharedCred =
         blobServiceClient.credential as StorageSharedKeyCredential;
       try {
+        const sasOptionsFixed = {
+          ...sasOptions,
+          expiresOn: new Date(Date.now() + expirationMinutes * 60 * 1000),
+          startsOn: undefined,
+        };
+
         return generateBlobSASQueryParameters(
-          sasOptions,
+          sasOptionsFixed,
           sharedCred,
         ).toString();
       } catch (err) {
@@ -90,6 +104,10 @@ export class SasService {
       }
     } else {
       // --- Ruta User Delegation Key via AAD ---
+
+      const { startsOn, expiresOn } =
+        this.computeValidityForUserDelegation(expirationMinutes);
+
       let userDelegationKey: UserDelegationKey;
       try {
         userDelegationKey = await blobServiceClient.getUserDelegationKey(
@@ -109,8 +127,14 @@ export class SasService {
       }
 
       try {
+        const sasOptionsFixed = {
+          ...sasOptions,
+          expiresOn,
+          startsOn: undefined,
+        };
+
         return generateBlobSASQueryParameters(
-          sasOptions,
+          sasOptionsFixed,
           userDelegationKey,
           accountName,
         ).toString();
@@ -160,14 +184,12 @@ export class SasService {
 
     // Obtener container/blob y fechas
     const { containerName, blobName } = this.getBlobInfo(blobUrl);
-    const { startsOn, expiresOn } = this.computeValidity();
+    const { expiresOn } = this.computeValidity();
 
-    // Construir la configuración común
     const sasOptions: BlobSASSignatureValues = {
       containerName,
       blobName,
       permissions: BlobSASPermissions.parse('r'),
-      startsOn,
       expiresOn,
       protocol: SASProtocol.Https,
       ipRange: userIp ? { start: userIp, end: userIp } : undefined,
@@ -179,8 +201,7 @@ export class SasService {
       blobServiceClient,
       sasOptions,
       useSharedKey,
-      startsOn,
-      expiresOn,
+      5,
       accountName,
     );
 
@@ -238,9 +259,8 @@ export class SasService {
     }
 
     // Calcular fechas
-    const { startsOn, expiresOn } = this.computeValidity(
-      expirationMinutes || 5,
-    );
+    const expirationMins = expirationMinutes || 30;
+    const { expiresOn } = this.computeValidity(expirationMins);
 
     // Construir permisos
     const permissionsString = permissions ? permissions.join('') : 'r';
@@ -256,7 +276,6 @@ export class SasService {
         containerName,
         blobName: fileName,
         permissions: blobPermissions,
-        startsOn,
         expiresOn,
         protocol: SASProtocol.Https,
         ipRange: userIp ? { start: userIp, end: userIp } : undefined,
@@ -269,7 +288,6 @@ export class SasService {
       sasOptions = {
         containerName,
         permissions: containerPermissions,
-        startsOn,
         expiresOn,
         protocol: SASProtocol.Https,
         ipRange: userIp ? { start: userIp, end: userIp } : undefined,
@@ -281,8 +299,7 @@ export class SasService {
       blobServiceClient,
       sasOptions,
       useSharedKey,
-      startsOn,
-      expiresOn,
+      expirationMins,
       accountName,
     );
 
