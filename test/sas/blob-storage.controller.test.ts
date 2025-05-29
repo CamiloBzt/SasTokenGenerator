@@ -153,8 +153,7 @@ describe('BlobStorageController', () => {
         containerName: 'uploads',
         directory: 'documents/2024',
         blobName: 'test.pdf',
-        fileBase64:
-          'JVBERi0xLjQKJdP0zOEKMSAwIG9iago8PAovVHlwZSAvQ2F0YWxvZwovUGFnZXMgMiAwIFIKPj4KZW5kb2JqCg==',
+        fileBase64: 'fileBase64',
         mimeType: 'application/pdf',
       };
 
@@ -305,8 +304,7 @@ describe('BlobStorageController', () => {
       };
 
       const mockResult = {
-        fileBase64:
-          'JVBERi0xLjQKJdP0zOEKMSAwIG9iago8PAovVHlwZSAvQ2F0YWxvZwovUGFnZXMgMiAwIFIKPj4KZW5kb2JqCg==',
+        fileBase64: 'JVBERi0xLj',
         contentType: 'application/pdf',
         containerName: 'uploads',
         blobName: 'test.pdf',

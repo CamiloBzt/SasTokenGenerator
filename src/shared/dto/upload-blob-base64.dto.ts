@@ -23,7 +23,7 @@ export class UploadBlobBase64Dto {
   @ApiProperty({
     description: 'Archivo codificado en Base64',
     example:
-      'JVBERi0xLjQKJdP0zOEKMSAwIG9iago8PAovVHlwZSAvQ2F0YWxvZwovUGFnZXMgMiAwIFIKPj4KZW5kb2JqCg==',
+      'JVBERi0xLj',
   })
   fileBase64: string;
 

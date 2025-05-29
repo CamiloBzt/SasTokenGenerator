@@ -227,8 +227,7 @@ export class BlobStorageController {
           containerName: 'uploads',
           blobName: 'documento.pdf',
           directory: 'documentos/2024',
-          fileBase64:
-            'JVBERi0xLjQKJdP0zOEKMSAwIG9iago8PAovVHlwZSAvQ2F0YWxvZwovUGFnZXMgMiAwIFIKPj4KZW5kb2JqCg==',
+          fileBase64: 'fileBase64',
           mimeType: 'application/pdf',
         },
       },
@@ -237,8 +236,7 @@ export class BlobStorageController {
         value: {
           containerName: 'uploads',
           blobName: 'imagen.jpg',
-          fileBase64:
-            '/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAABAAEDASIAAhEBAxEB',
+          fileBase64: 'fileBase64',
           mimeType: 'image/jpeg',
         },
       },
@@ -416,8 +414,7 @@ export class BlobStorageController {
           statusDescription: 'Operación completada con éxito.',
         },
         data: {
-          fileBase64:
-            'JVBERi0xLjQKJdP0zOEKMSAwIG9iago8PAovVHlwZSAvQ2F0YWxvZwovUGFnZXMgMiAwIFIKPj4KZW5kb2JqCg==',
+          fileBase64: 'fileBase64',
           contentType: 'application/pdf',
           containerName: 'uploads',
           blobName: 'archivo.pdf',

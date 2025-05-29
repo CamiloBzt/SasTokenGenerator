@@ -127,6 +127,21 @@ export class BlobStorageService {
     }
   }
 
+  /**
+   * Valida que el base64 y el mimeType sean válidos.
+   */
+  private validateBase64AndMimeType(
+    fileBase64: string,
+    mimeType: string,
+  ): void {
+    if (!fileBase64 || fileBase64.trim() === '') {
+      throw new BadRequestException(ErrorMessages.FILE_BASE64_MISSING);
+    }
+    if (!mimeType || mimeType.trim() === '') {
+      throw new BadRequestException(ErrorMessages.MIME_TYPE_MISSING);
+    }
+  }
+
   async uploadBlobBase64(
     containerName: string,
     directory: string | undefined,
@@ -140,15 +155,8 @@ export class BlobStorageService {
     fullPath: string;
     requestId: string;
   }> {
-    // Validar Base64
-    if (!fileBase64 || fileBase64.trim() === '') {
-      throw new BadRequestException(ErrorMessages.FILE_BASE64_MISSING);
-    }
-
-    // Validar MIME type
-    if (!mimeType || mimeType.trim() === '') {
-      throw new BadRequestException(ErrorMessages.MIME_TYPE_MISSING);
-    }
+    // Validar Base64 y MIME type
+    this.validateBase64AndMimeType(fileBase64, mimeType);
 
     try {
       // Convertir Base64 a Buffer
