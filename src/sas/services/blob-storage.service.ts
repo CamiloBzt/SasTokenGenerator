@@ -512,4 +512,139 @@ export class BlobStorageService {
       throw new InternalServerErrorException(ErrorMessages.SAS_GENERATION);
     }
   }
+
+  async moveBlob(
+    containerName: string,
+    sourceBlobPath: string,
+    destinationBlobPath: string,
+  ): Promise<{
+    message: string;
+    containerName: string;
+    sourcePath: string;
+    destinationPath: string;
+    requestId: string;
+  }> {
+    // Validar que las rutas no sean iguales
+    if (sourceBlobPath === destinationBlobPath) {
+      throw new BadRequestException(ErrorMessages.BLOB_MOVE_SAME_PATH);
+    }
+
+    // Generar SAS tokens
+    const sourceSasData = await this.sasService.generateSasTokenWithParams(
+      containerName,
+      sourceBlobPath,
+      [SasPermission.READ, SasPermission.DELETE],
+      30, // 30 minutos de expiración
+    );
+
+    const destinationSasData = await this.sasService.generateSasTokenWithParams(
+      containerName,
+      destinationBlobPath,
+      [SasPermission.WRITE, SasPermission.CREATE],
+      30,
+    );
+
+    try {
+      // Crear clientes para los blobs de origen y destino
+      const sourceBlockBlobClient = new BlockBlobClient(sourceSasData.sasUrl);
+      const destinationBlockBlobClient = new BlockBlobClient(
+        destinationSasData.sasUrl,
+      );
+
+      // Verificar que el blob de origen existe
+      const sourceExists = await sourceBlockBlobClient.exists();
+      if (!sourceExists) {
+        throw new BusinessErrorException(ErrorMessages.BLOB_NOT_FOUND);
+      }
+
+      // Obtener las propiedades del blob origen para preservar metadatos
+      const sourceProperties = await sourceBlockBlobClient.getProperties();
+
+      // Copiar el blob
+      const copyOperation = await destinationBlockBlobClient.syncCopyFromURL(
+        sourceBlockBlobClient.url,
+      );
+
+      // Verificar que la copia fue exitosa
+      if (copyOperation.copyStatus !== 'success') {
+        throw new InternalServerErrorException(
+          `${ErrorMessages.BLOB_MOVE_FAILED} Copy status: ${copyOperation.copyStatus}`,
+        );
+      }
+
+      // Preservar los metadatos y propiedades del archivo original
+      try {
+        await destinationBlockBlobClient.setHTTPHeaders({
+          blobContentType: sourceProperties.contentType,
+          blobContentEncoding: sourceProperties.contentEncoding,
+          blobContentLanguage: sourceProperties.contentLanguage,
+          blobContentDisposition: sourceProperties.contentDisposition,
+          blobCacheControl: sourceProperties.cacheControl,
+        });
+
+        if (
+          sourceProperties.metadata &&
+          Object.keys(sourceProperties.metadata).length > 0
+        ) {
+          await destinationBlockBlobClient.setMetadata(
+            sourceProperties.metadata,
+          );
+        }
+      } catch (error: any) {
+        console.warn(
+          'Warning: Could not preserve all metadata:',
+          error.message,
+        );
+      }
+
+      // Eliminar el blob original
+      try {
+        const deleteResult = await sourceBlockBlobClient.deleteIfExists();
+        if (!deleteResult.succeeded) {
+          console.warn(
+            `Warning: Failed to delete source blob after copy: ${sourceBlobPath}. Manual cleanup may be required.`,
+          );
+        }
+      } catch (error: any) {
+        console.warn(
+          `Warning: Error deleting source blob: ${error.message}. File was copied successfully but source cleanup failed.`,
+        );
+      }
+
+      console.log(
+        `Successfully moved blob from ${sourceBlobPath} to ${destinationBlobPath}`,
+      );
+
+      return {
+        message: 'Blob moved successfully',
+        containerName,
+        sourcePath: sourceBlobPath,
+        destinationPath: destinationBlobPath,
+        requestId: uuidv4(),
+      };
+    } catch (error: any) {
+      console.error('Error moving blob:', error);
+
+      if (
+        error instanceof BadRequestException ||
+        error instanceof BusinessErrorException
+      ) {
+        throw error;
+      }
+
+      if (error.statusCode === 401 || error.statusCode === 403) {
+        throw new InternalServerErrorException(
+          `${ErrorMessages.SAS_PERMISSION} Detalles: ${error.message || 'Sin permisos suficientes'}`,
+        );
+      }
+
+      if (error.statusCode === 404) {
+        throw new BusinessErrorException(ErrorMessages.BLOB_NOT_FOUND);
+      }
+
+      throw new InternalServerErrorException(
+        `${ErrorMessages.BLOB_MOVE_FAILED} Error: ${error.message || 'Error desconocido'}`,
+      );
+    }
+  }
 }

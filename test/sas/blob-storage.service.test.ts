@@ -563,4 +563,353 @@ describe('BlobStorageService', () => {
       }).toThrow(BadRequestException);
     });
   });
+
+  describe('moveBlob', () => {
+    it('should move blob successfully', async () => {
+      const mockSasData = {
+        sasUrl:
+          'https://teststorageaccount.blob.core.windows.net/uploads/test.pdf?sv=...',
+      };
+
+      const mockBlockBlobClient = {
+        exists: jest.fn().mockResolvedValue(true),
+        getProperties: jest.fn().mockResolvedValue({
+          contentType: 'application/pdf',
+          contentEncoding: 'gzip',
+          contentLanguage: 'en-US',
+          metadata: { author: 'test', version: '1.0' },
+        }),
+        syncCopyFromURL: jest.fn().mockResolvedValue({ copyStatus: 'success' }),
+        setHTTPHeaders: jest.fn().mockResolvedValue({}),
+        setMetadata: jest.fn().mockResolvedValue({}),
+        deleteIfExists: jest.fn().mockResolvedValue({ succeeded: true }),
+      };
+
+      (sasService.generateSasTokenWithParams as jest.Mock).mockResolvedValue(
+        mockSasData,
+      );
+      (storageBlob.BlockBlobClient as unknown as jest.Mock).mockImplementation(
+        () => mockBlockBlobClient,
+      );
+
+      const result = await blobStorageService.moveBlob(
+        'uploads',
+        'temporal/file.pdf',
+        'documentos/file.pdf',
+      );
+
+      expect(result.message).toBe('Blob moved successfully');
+      expect(result.containerName).toBe('uploads');
+      expect(result.sourcePath).toBe('temporal/file.pdf');
+      expect(result.destinationPath).toBe('documentos/file.pdf');
+      expect(result.requestId).toBe('123e4567-e89b-12d3-a456-426614174000');
+
+      // Verificar que se llamaron los métodos esperados
+      expect(mockBlockBlobClient.exists).toHaveBeenCalled();
+      expect(mockBlockBlobClient.getProperties).toHaveBeenCalled();
+      expect(mockBlockBlobClient.syncCopyFromURL).toHaveBeenCalled();
+      expect(mockBlockBlobClient.setHTTPHeaders).toHaveBeenCalled();
+      expect(mockBlockBlobClient.setMetadata).toHaveBeenCalled();
+      expect(mockBlockBlobClient.deleteIfExists).toHaveBeenCalled();
+    });
+
+    it('should throw error when source and destination are the same', async () => {
+      await expect(
+        blobStorageService.moveBlob('uploads', 'file.pdf', 'file.pdf'),
+      ).rejects.toThrow(BadRequestException);
+
+      // No debería llamar al sasService si las rutas son iguales
+      expect(sasService.generateSasTokenWithParams).not.toHaveBeenCalled();
+    });
+
+    it('should throw error when source blob does not exist', async () => {
+      const mockSasData = {
+        sasUrl:
+          'https://teststorageaccount.blob.core.windows.net/uploads/test.pdf?sv=...',
+      };
+
+      const mockBlockBlobClient = {
+        exists: jest.fn().mockResolvedValue(false), // Fuente no existe
+      };
+
+      (sasService.generateSasTokenWithParams as jest.Mock).mockResolvedValue(
+        mockSasData,
+      );
+      (storageBlob.BlockBlobClient as unknown as jest.Mock).mockImplementation(
+        () => mockBlockBlobClient,
+      );
+
+      await expect(
+        blobStorageService.moveBlob('uploads', 'nonexistent.pdf', 'dest.pdf'),
+      ).rejects.toThrow(BusinessErrorException);
+
+      expect(mockBlockBlobClient.exists).toHaveBeenCalled();
+    });
+
+    it('should throw error when copy operation fails', async () => {
+      const mockSasData = {
+        sasUrl:
+          'https://teststorageaccount.blob.core.windows.net/uploads/test.pdf?sv=...',
+      };
+
+      const mockBlockBlobClient = {
+        exists: jest.fn().mockResolvedValue(true),
+        getProperties: jest.fn().mockResolvedValue({
+          contentType: 'application/pdf',
+          metadata: {},
+        }),
+        syncCopyFromURL: jest.fn().mockResolvedValue({ copyStatus: 'failed' }), // Copia falló
+      };
+
+      (sasService.generateSasTokenWithParams as jest.Mock).mockResolvedValue(
+        mockSasData,
+      );
+      (storageBlob.BlockBlobClient as unknown as jest.Mock).mockImplementation(
+        () => mockBlockBlobClient,
+      );
+
+      await expect(
+        blobStorageService.moveBlob('uploads', 'source.pdf', 'dest.pdf'),
+      ).rejects.toThrow(InternalServerErrorException);
+
+      expect(mockBlockBlobClient.syncCopyFromURL).toHaveBeenCalled();
+    });
+
+    it('should handle metadata preservation errors gracefully', async () => {
+      const mockSasData = {
+        sasUrl:
+          'https://teststorageaccount.blob.core.windows.net/uploads/test.pdf?sv=...',
+      };
+
+      const mockBlockBlobClient = {
+        exists: jest.fn().mockResolvedValue(true),
+        getProperties: jest.fn().mockResolvedValue({
+          contentType: 'application/pdf',
+          metadata: { author: 'test' },
+        }),
+        syncCopyFromURL: jest.fn().mockResolvedValue({ copyStatus: 'success' }),
+        setHTTPHeaders: jest
+          .fn()
+          .mockRejectedValue(new Error('Metadata error')),
+        setMetadata: jest.fn().mockRejectedValue(new Error('Metadata error')),
+        deleteIfExists: jest.fn().mockResolvedValue({ succeeded: true }),
+      };
+
+      (sasService.generateSasTokenWithParams as jest.Mock).mockResolvedValue(
+        mockSasData,
+      );
+      (storageBlob.BlockBlobClient as unknown as jest.Mock).mockImplementation(
+        () => mockBlockBlobClient,
+      );
+
+      // Debe completar exitosamente a pesar del error en metadatos
+      const result = await blobStorageService.moveBlob(
+        'uploads',
+        'source.pdf',
+        'dest.pdf',
+      );
+
+      expect(result.message).toBe('Blob moved successfully');
+      expect(mockBlockBlobClient.setHTTPHeaders).toHaveBeenCalled();
+      expect(mockBlockBlobClient.deleteIfExists).toHaveBeenCalled();
+    });
+
+    it('should handle source deletion failure gracefully', async () => {
+      const mockSasData = {
+        sasUrl:
+          'https://teststorageaccount.blob.core.windows.net/uploads/test.pdf?sv=...',
+      };
+
+      const mockBlockBlobClient = {
+        exists: jest.fn().mockResolvedValue(true),
+        getProperties: jest.fn().mockResolvedValue({
+          contentType: 'application/pdf',
+          metadata: {},
+        }),
+        syncCopyFromURL: jest.fn().mockResolvedValue({ copyStatus: 'success' }),
+        setHTTPHeaders: jest.fn().mockResolvedValue({}),
+        setMetadata: jest.fn().mockResolvedValue({}),
+        deleteIfExists: jest.fn().mockResolvedValue({ succeeded: false }), // Eliminación falló
+      };
+
+      (sasService.generateSasTokenWithParams as jest.Mock).mockResolvedValue(
+        mockSasData,
+      );
+      (storageBlob.BlockBlobClient as unknown as jest.Mock).mockImplementation(
+        () => mockBlockBlobClient,
+      );
+
+      // Debe completar exitosamente a pesar del error en eliminación
+      const result = await blobStorageService.moveBlob(
+        'uploads',
+        'source.pdf',
+        'dest.pdf',
+      );
+
+      expect(result.message).toBe('Blob moved successfully');
+      expect(mockBlockBlobClient.deleteIfExists).toHaveBeenCalled();
+    });
+
+    it('should handle Azure permission errors', async () => {
+      const mockSasData = {
+        sasUrl:
+          'https://teststorageaccount.blob.core.windows.net/uploads/test.pdf?sv=...',
+      };
+
+      const permissionError = new Error('Permission denied');
+      (permissionError as any).statusCode = 403;
+
+      const mockBlockBlobClient = {
+        exists: jest.fn().mockResolvedValue(true),
+        getProperties: jest.fn().mockResolvedValue({
+          contentType: 'application/pdf',
+          metadata: {},
+        }),
+        syncCopyFromURL: jest.fn().mockRejectedValue(permissionError),
+      };
+
+      (sasService.generateSasTokenWithParams as jest.Mock).mockResolvedValue(
+        mockSasData,
+      );
+      (storageBlob.BlockBlobClient as unknown as jest.Mock).mockImplementation(
+        () => mockBlockBlobClient,
+      );
+
+      await expect(
+        blobStorageService.moveBlob('uploads', 'source.pdf', 'dest.pdf'),
+      ).rejects.toThrow(InternalServerErrorException);
+    });
+
+    it('should handle network errors during move operation', async () => {
+      const mockSasData = {
+        sasUrl:
+          'https://teststorageaccount.blob.core.windows.net/uploads/test.pdf?sv=...',
+      };
+
+      const networkError = new Error('Network timeout');
+
+      const mockBlockBlobClient = {
+        exists: jest.fn().mockRejectedValue(networkError),
+      };
+
+      (sasService.generateSasTokenWithParams as jest.Mock).mockResolvedValue(
+        mockSasData,
+      );
+      (storageBlob.BlockBlobClient as unknown as jest.Mock).mockImplementation(
+        () => mockBlockBlobClient,
+      );
+
+      await expect(
+        blobStorageService.moveBlob('uploads', 'source.pdf', 'dest.pdf'),
+      ).rejects.toThrow(InternalServerErrorException);
+    });
+
+    it('should handle move with complex directory paths', async () => {
+      const mockSasData = {
+        sasUrl:
+          'https://teststorageaccount.blob.core.windows.net/uploads/deep/nested/file.pdf?sv=...',
+      };
+
+      const mockBlockBlobClient = {
+        exists: jest.fn().mockResolvedValue(true),
+        getProperties: jest.fn().mockResolvedValue({
+          contentType: 'application/pdf',
+          metadata: { category: 'important' },
+        }),
+        syncCopyFromURL: jest.fn().mockResolvedValue({ copyStatus: 'success' }),
+        setHTTPHeaders: jest.fn().mockResolvedValue({}),
+        setMetadata: jest.fn().mockResolvedValue({}),
+        deleteIfExists: jest.fn().mockResolvedValue({ succeeded: true }),
+      };
+
+      (sasService.generateSasTokenWithParams as jest.Mock).mockResolvedValue(
+        mockSasData,
+      );
+      (storageBlob.BlockBlobClient as unknown as jest.Mock).mockImplementation(
+        () => mockBlockBlobClient,
+      );
+
+      const result = await blobStorageService.moveBlob(
+        'uploads',
+        'documentos/2024/enero/archivo-temporal.pdf',
+        'archivos/definitivos/2025/archivo-final.pdf',
+      );
+
+      expect(result.message).toBe('Blob moved successfully');
+      expect(result.sourcePath).toBe(
+        'documentos/2024/enero/archivo-temporal.pdf',
+      );
+      expect(result.destinationPath).toBe(
+        'archivos/definitivos/2025/archivo-final.pdf',
+      );
+
+      // Verificar que se generaron SAS tokens para las rutas correctas
+      expect(sasService.generateSasTokenWithParams).toHaveBeenCalledWith(
+        'uploads',
+        'documentos/2024/enero/archivo-temporal.pdf',
+        expect.any(Array),
+        30,
+      );
+      expect(sasService.generateSasTokenWithParams).toHaveBeenCalledWith(
+        'uploads',
+        'archivos/definitivos/2025/archivo-final.pdf',
+        expect.any(Array),
+        30,
+      );
+    });
+
+    it('should preserve all metadata properties correctly', async () => {
+      const mockSasData = {
+        sasUrl:
+          'https://teststorageaccount.blob.core.windows.net/uploads/test.pdf?sv=...',
+      };
+
+      const sourceProperties = {
+        contentType: 'application/pdf',
+        contentEncoding: 'gzip',
+        contentLanguage: 'en-US',
+        contentDisposition: 'attachment; filename="test.pdf"',
+        cacheControl: 'max-age=3600',
+        metadata: {
+          author: 'John Doe',
+          department: 'Finance',
+          classification: 'confidential',
+        },
+      };
+
+      const mockBlockBlobClient = {
+        exists: jest.fn().mockResolvedValue(true),
+        getProperties: jest.fn().mockResolvedValue(sourceProperties),
+        syncCopyFromURL: jest.fn().mockResolvedValue({ copyStatus: 'success' }),
+        setHTTPHeaders: jest.fn().mockResolvedValue({}),
+        setMetadata: jest.fn().mockResolvedValue({}),
+        deleteIfExists: jest.fn().mockResolvedValue({ succeeded: true }),
+      };
+
+      (sasService.generateSasTokenWithParams as jest.Mock).mockResolvedValue(
+        mockSasData,
+      );
+      (storageBlob.BlockBlobClient as unknown as jest.Mock).mockImplementation(
+        () => mockBlockBlobClient,
+      );
+
+      await blobStorageService.moveBlob('uploads', 'source.pdf', 'dest.pdf');
+
+      // Verificar que se preservaron las cabeceras HTTP
+      expect(mockBlockBlobClient.setHTTPHeaders).toHaveBeenCalledWith({
+        blobContentType: 'application/pdf',
+        blobContentEncoding: 'gzip',
+        blobContentLanguage: 'en-US',
+        blobContentDisposition: 'attachment; filename="test.pdf"',
+        blobCacheControl: 'max-age=3600',
+      });
+
+      // Verificar que se preservaron los metadatos
+      expect(mockBlockBlobClient.setMetadata).toHaveBeenCalledWith({
+        author: 'John Doe',
+        department: 'Finance',
+        classification: 'confidential',
+      });
+    });
+  });
 });

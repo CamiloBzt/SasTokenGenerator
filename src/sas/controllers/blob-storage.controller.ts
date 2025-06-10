@@ -22,6 +22,7 @@ import { DownloadBlobBase64Dto } from '@src/shared/dto/download-blob-base64.dto'
 import { DownloadBlobDto } from '@src/shared/dto/download-blob.dto';
 import { ListBlobsInDirectoryDto } from '@src/shared/dto/list-blobs-directory.dto';
 import { ListBlobsDto } from '@src/shared/dto/list-blobs.dto';
+import { MoveBlobDto } from '@src/shared/dto/move-blob.dto';
 import { UploadBlobBase64Dto } from '@src/shared/dto/upload-blob-base64.dto';
 import { UploadBlobDto } from '@src/shared/dto/upload-blob-dto';
 import { ErrorMessages } from '@src/shared/enums/error-messages.enum';
@@ -661,6 +662,112 @@ export class BlobStorageController {
     const result = await this.blobStorageService.listBlobsInDirectory(
       listBlobsInDirectoryDto.containerName,
       listBlobsInDirectoryDto.directory,
+    );
+
+    return {
+      status: {
+        statusCode: HttpStatus.OK,
+        statusDescription: 'Operación completada con éxito.',
+      },
+      data: result,
+    };
+  }
+
+  @Post('move')
+  @ApiOperation({
+    summary: 'Move a blob to a different location',
+    description:
+      'Move a file from one location to another within the same container. This operation copies the file to the new location and then deletes the original. If the destination already exists, it will be overwritten.',
+  })
+  @ApiBody({
+    description: 'Move blob data',
+    type: MoveBlobDto,
+    examples: {
+      moveToDirectory: {
+        summary: 'Move to different directory',
+        value: {
+          containerName: 'uploads',
+          sourceBlobPath: 'temporal/documento.pdf',
+          destinationBlobPath: 'documentos/2024/documento-final.pdf',
+        },
+      },
+      renameFile: {
+        summary: 'Rename file in same directory',
+        value: {
+          containerName: 'uploads',
+          sourceBlobPath: 'documentos/draft.pdf',
+          destinationBlobPath: 'documentos/final-version.pdf',
+        },
+      },
+      reorganizeStructure: {
+        summary: 'Reorganize file structure',
+        value: {
+          containerName: 'uploads',
+          sourceBlobPath: 'Archivo_1.pdf',
+          destinationBlobPath: 'documentos/2025/Archivo_1.pdf',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Blob moved successfully',
+    schema: {
+      example: {
+        status: {
+          statusCode: 200,
+          statusDescription: 'Operación completada con éxito.',
+        },
+        data: {
+          message: 'Blob moved successfully',
+          containerName: 'uploads',
+          sourcePath: 'temporal/documento.pdf',
+          destinationPath: 'documentos/2024/documento-final.pdf',
+          requestId: '123e4567-e89b-12d3-a456-426614174000',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid request - same source and destination paths',
+    schema: {
+      example: {
+        status: {
+          statusCode: 400,
+          statusDescription:
+            'La ruta de origen y destino no pueden ser la misma.',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.PARTIAL_CONTENT,
+    description: 'Source blob not found',
+    schema: {
+      example: {
+        status: {
+          statusCode: 206,
+          statusDescription: 'El archivo especificado no existe.',
+        },
+      },
+    },
+  })
+  @HttpCode(HttpStatus.OK)
+  async moveBlobPost(@Body() moveBlobDto: MoveBlobDto): Promise<{
+    status: { statusCode: number; statusDescription: string };
+    data: {
+      message: string;
+      containerName: string;
+      sourcePath: string;
+      destinationPath: string;
+      requestId: string;
+    };
+  }> {
+    const result = await this.blobStorageService.moveBlob(
+      moveBlobDto.containerName,
+      moveBlobDto.sourceBlobPath,
+      moveBlobDto.destinationBlobPath,
     );
 
     return {

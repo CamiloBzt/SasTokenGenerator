@@ -8,6 +8,8 @@ import { BadRequestException } from '@src/shared/exceptions/bad-request.exceptio
 import { BlobStorageController } from '../../src/sas/controllers/blob-storage.controller';
 import { BlobStorageService } from '../../src/sas/services/blob-storage.service';
 import { FileValidationService } from '../../src/sas/services/file-validation.service';
+import { MoveBlobDto } from '@src/shared/dto/move-blob.dto';
+import { BusinessErrorException } from '@src/shared/exceptions/business-error.exception';
 
 describe('BlobStorageController', () => {
   let blobStorageController: BlobStorageController;
@@ -23,6 +25,7 @@ describe('BlobStorageController', () => {
       deleteBlob: jest.fn(),
       listBlobs: jest.fn(),
       listBlobsInDirectory: jest.fn(),
+      moveBlob: jest.fn(),
     };
 
     fileValidationService = {
@@ -594,6 +597,207 @@ describe('BlobStorageController', () => {
       expect(blobStorageService.listBlobsInDirectory).toHaveBeenCalledWith(
         listDto.containerName,
         listDto.directory,
+      );
+    });
+  });
+
+  describe('moveBlob (POST)', () => {
+    it('should move a blob successfully', async () => {
+      const moveBlobDto: MoveBlobDto = {
+        containerName: 'uploads',
+        sourceBlobPath: 'temporal/documento.pdf',
+        destinationBlobPath: 'documentos/2024/documento-final.pdf',
+      };
+
+      const mockResult = {
+        message: 'Blob moved successfully',
+        containerName: 'uploads',
+        sourcePath: 'temporal/documento.pdf',
+        destinationPath: 'documentos/2024/documento-final.pdf',
+        requestId: '123e4567-e89b-12d3-a456-426614174000',
+      };
+
+      (blobStorageService.moveBlob as jest.Mock).mockResolvedValue(mockResult);
+
+      const result = await blobStorageController.moveBlobPost(moveBlobDto);
+
+      expect(result).toEqual({
+        status: {
+          statusCode: HttpStatus.OK,
+          statusDescription: 'Operación completada con éxito.',
+        },
+        data: mockResult,
+      });
+
+      expect(blobStorageService.moveBlob).toHaveBeenCalledWith(
+        moveBlobDto.containerName,
+        moveBlobDto.sourceBlobPath,
+        moveBlobDto.destinationBlobPath,
+      );
+    });
+
+    it('should move blob to different directory successfully', async () => {
+      const moveBlobDto: MoveBlobDto = {
+        containerName: 'uploads',
+        sourceBlobPath: 'Archivo_1.pdf',
+        destinationBlobPath: 'documentos/2025/Archivo_1.pdf',
+      };
+
+      const mockResult = {
+        message: 'Blob moved successfully',
+        containerName: 'uploads',
+        sourcePath: 'Archivo_1.pdf',
+        destinationPath: 'documentos/2025/Archivo_1.pdf',
+        requestId: '456e7890-e12b-34c5-d678-901234567890',
+      };
+
+      (blobStorageService.moveBlob as jest.Mock).mockResolvedValue(mockResult);
+
+      const result = await blobStorageController.moveBlobPost(moveBlobDto);
+
+      expect(result).toEqual({
+        status: {
+          statusCode: HttpStatus.OK,
+          statusDescription: 'Operación completada con éxito.',
+        },
+        data: mockResult,
+      });
+
+      expect(blobStorageService.moveBlob).toHaveBeenCalledWith(
+        'uploads',
+        'Archivo_1.pdf',
+        'documentos/2025/Archivo_1.pdf',
+      );
+    });
+
+    it('should rename blob in same directory successfully', async () => {
+      const moveBlobDto: MoveBlobDto = {
+        containerName: 'uploads',
+        sourceBlobPath: 'image001 (1).png',
+        destinationBlobPath: 'image001-cleaned.png',
+      };
+
+      const mockResult = {
+        message: 'Blob moved successfully',
+        containerName: 'uploads',
+        sourcePath: 'image001 (1).png',
+        destinationPath: 'image001-cleaned.png',
+        requestId: '789e0123-e45f-67g8-h901-234567890123',
+      };
+
+      (blobStorageService.moveBlob as jest.Mock).mockResolvedValue(mockResult);
+
+      const result = await blobStorageController.moveBlobPost(moveBlobDto);
+
+      expect(result).toEqual({
+        status: {
+          statusCode: HttpStatus.OK,
+          statusDescription: 'Operación completada con éxito.',
+        },
+        data: mockResult,
+      });
+
+      expect(blobStorageService.moveBlob).toHaveBeenCalledWith(
+        'uploads',
+        'image001 (1).png',
+        'image001-cleaned.png',
+      );
+    });
+
+    it('should handle move blob with overwrite (existing destination)', async () => {
+      const moveBlobDto: MoveBlobDto = {
+        containerName: 'uploads',
+        sourceBlobPath: 'porvenir.jpg',
+        destinationBlobPath: 'imagenes/2025/porvenir.jpg',
+      };
+
+      const mockResult = {
+        message: 'Blob moved successfully',
+        containerName: 'uploads',
+        sourcePath: 'porvenir.jpg',
+        destinationPath: 'imagenes/2025/porvenir.jpg',
+        requestId: '012e3456-e78a-9bcd-ef01-234567890abc',
+      };
+
+      (blobStorageService.moveBlob as jest.Mock).mockResolvedValue(mockResult);
+
+      const result = await blobStorageController.moveBlobPost(moveBlobDto);
+
+      expect(result).toEqual({
+        status: {
+          statusCode: HttpStatus.OK,
+          statusDescription: 'Operación completada con éxito.',
+        },
+        data: mockResult,
+      });
+
+      expect(blobStorageService.moveBlob).toHaveBeenCalledWith(
+        'uploads',
+        'porvenir.jpg',
+        'imagenes/2025/porvenir.jpg',
+      );
+    });
+
+    it('should throw error when source blob does not exist', async () => {
+      const moveBlobDto: MoveBlobDto = {
+        containerName: 'uploads',
+        sourceBlobPath: 'archivo-inexistente.pdf',
+        destinationBlobPath: 'documentos/archivo.pdf',
+      };
+
+      const error = new BusinessErrorException(ErrorMessages.BLOB_NOT_FOUND);
+      (blobStorageService.moveBlob as jest.Mock).mockRejectedValue(error);
+
+      await expect(
+        blobStorageController.moveBlobPost(moveBlobDto),
+      ).rejects.toThrow(BusinessErrorException);
+
+      expect(blobStorageService.moveBlob).toHaveBeenCalledWith(
+        'uploads',
+        'archivo-inexistente.pdf',
+        'documentos/archivo.pdf',
+      );
+    });
+
+    it('should throw error when source and destination paths are the same', async () => {
+      const moveBlobDto: MoveBlobDto = {
+        containerName: 'uploads',
+        sourceBlobPath: 'Archivo_1.pdf',
+        destinationBlobPath: 'Archivo_1.pdf',
+      };
+
+      const error = new BadRequestException(ErrorMessages.BLOB_MOVE_SAME_PATH);
+      (blobStorageService.moveBlob as jest.Mock).mockRejectedValue(error);
+
+      await expect(
+        blobStorageController.moveBlobPost(moveBlobDto),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(blobStorageService.moveBlob).toHaveBeenCalledWith(
+        'uploads',
+        'Archivo_1.pdf',
+        'Archivo_1.pdf',
+      );
+    });
+
+    it('should handle service errors during move operation', async () => {
+      const moveBlobDto: MoveBlobDto = {
+        containerName: 'uploads',
+        sourceBlobPath: 'Archivo_2.pdf',
+        destinationBlobPath: 'documentos/Archivo_2.pdf',
+      };
+
+      const error = new BadRequestException('Move operation failed');
+      (blobStorageService.moveBlob as jest.Mock).mockRejectedValue(error);
+
+      await expect(
+        blobStorageController.moveBlobPost(moveBlobDto),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(blobStorageService.moveBlob).toHaveBeenCalledWith(
+        'uploads',
+        'Archivo_2.pdf',
+        'documentos/Archivo_2.pdf',
       );
     });
   });

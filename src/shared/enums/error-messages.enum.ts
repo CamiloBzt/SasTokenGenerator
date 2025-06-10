@@ -18,4 +18,6 @@ export enum ErrorMessages {
   FILE_EXTENSION_MISSING = 'La extensión del archivo es requerida.',
   FILE_EXTENSION_MISMATCH = 'La extensión del archivo no coincide.',
   FILE_EXTENSION_NOT_ALLOWED = 'Extensión de archivo no permitida.',
+  BLOB_MOVE_SAME_PATH = 'La ruta de origen y destino no pueden ser la misma.',
+  BLOB_MOVE_FAILED = 'Error al mover el archivo.',
 }
