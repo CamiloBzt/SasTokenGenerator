@@ -15,4 +15,7 @@ export enum ErrorMessages {
   MIME_TYPE_NOT_ALLOWED = 'Tipo de archivo no permitido.',
   BASE64_CONTENT_INVALID = 'Contenido Base64 inválido proporcionado.',
   BASE64_EMPTY_BUFFER = 'El contenido Base64 resultó en un buffer vacío.',
+  FILE_EXTENSION_MISSING = 'La extensión del archivo es requerida.',
+  FILE_EXTENSION_MISMATCH = 'La extensión del archivo no coincide.',
+  FILE_EXTENSION_NOT_ALLOWED = 'Extensión de archivo no permitida.',
 }

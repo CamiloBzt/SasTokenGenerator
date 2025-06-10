@@ -3,6 +3,7 @@ import { InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException } from '@src/shared/exceptions/bad-request.exception';
+import { BusinessErrorException } from '@src/shared/exceptions/business-error.exception';
 import { BlobStorageService } from '../../src/sas/services/blob-storage.service';
 import { SasService } from '../../src/sas/services/sas.service';
 
@@ -344,7 +345,7 @@ describe('BlobStorageService', () => {
 
       await expect(
         blobStorageService.deleteBlob('uploads', undefined, 'test.pdf'),
-      ).rejects.toThrow(BadRequestException);
+      ).rejects.toThrow(BusinessErrorException);
     });
 
     // Test para cubrir manejo de errores

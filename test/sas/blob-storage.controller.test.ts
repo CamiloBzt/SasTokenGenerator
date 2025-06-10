@@ -7,10 +7,12 @@ import { ErrorMessages } from '@src/shared/enums/error-messages.enum';
 import { BadRequestException } from '@src/shared/exceptions/bad-request.exception';
 import { BlobStorageController } from '../../src/sas/controllers/blob-storage.controller';
 import { BlobStorageService } from '../../src/sas/services/blob-storage.service';
+import { FileValidationService } from '../../src/sas/services/file-validation.service';
 
 describe('BlobStorageController', () => {
   let blobStorageController: BlobStorageController;
   let blobStorageService: Partial<BlobStorageService>;
+  let fileValidationService: Partial<FileValidationService>;
 
   beforeEach(async () => {
     blobStorageService = {
@@ -23,12 +25,24 @@ describe('BlobStorageController', () => {
       listBlobsInDirectory: jest.fn(),
     };
 
+    fileValidationService = {
+      validateMultipartUpload: jest.fn(),
+      validateBase64Upload: jest.fn(),
+      validateBlobNameExtension: jest.fn(),
+      validateFileExtensionMatch: jest.fn(),
+      validateMimeTypeAndExtension: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       controllers: [BlobStorageController],
       providers: [
         {
           provide: BlobStorageService,
           useValue: blobStorageService,
+        },
+        {
+          provide: FileValidationService,
+          useValue: fileValidationService,
         },
       ],
     }).compile();
@@ -82,6 +96,11 @@ describe('BlobStorageController', () => {
         data: mockResult,
       });
 
+      // Verificar que se llamó la validación
+      expect(
+        fileValidationService.validateMultipartUpload,
+      ).toHaveBeenCalledWith(mockFile, uploadDto.blobName);
+
       expect(blobStorageService.uploadBlob).toHaveBeenCalledWith(
         uploadDto.containerName,
         uploadDto.directory,
@@ -100,6 +119,11 @@ describe('BlobStorageController', () => {
       await expect(
         blobStorageController.uploadBlob(null as any, uploadDto),
       ).rejects.toThrow(new BadRequestException(ErrorMessages.FILE_MISSING));
+
+      // No debería llamar la validación si el archivo es null
+      expect(
+        fileValidationService.validateMultipartUpload,
+      ).not.toHaveBeenCalled();
     });
 
     it('should throw error when file buffer is missing', async () => {
@@ -118,6 +142,11 @@ describe('BlobStorageController', () => {
       await expect(
         blobStorageController.uploadBlob(mockFile, uploadDto),
       ).rejects.toThrow(new BadRequestException(ErrorMessages.FILE_MISSING));
+
+      // No debería llamar la validación si el buffer es null
+      expect(
+        fileValidationService.validateMultipartUpload,
+      ).not.toHaveBeenCalled();
     });
 
     it('should throw error when file is too large', async () => {
@@ -144,6 +173,48 @@ describe('BlobStorageController', () => {
           `${ErrorMessages.FILE_TOO_LARGE} Tamaño actual: 7.00MB. Máximo permitido: 6MB`,
         ),
       );
+
+      // No debería llamar la validación si el archivo es muy grande
+      expect(
+        fileValidationService.validateMultipartUpload,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('should throw error when file extension validation fails', async () => {
+      const mockFile = {
+        fieldname: 'file',
+        originalname: 'test.jpg', // Archivo JPG
+        encoding: '7bit',
+        mimetype: 'image/jpeg',
+        size: 1024,
+        buffer: Buffer.from('test file content'),
+      } as Express.Multer.File;
+
+      const uploadDto: UploadBlobDto = {
+        containerName: 'uploads',
+        blobName: 'test.pdf', // Blob PDF - ¡No coinciden!
+        file: null,
+      };
+
+      // Mock para que la validación lance error
+      (
+        fileValidationService.validateMultipartUpload as jest.Mock
+      ).mockImplementation(() => {
+        throw new BadRequestException(ErrorMessages.FILE_EXTENSION_MISMATCH);
+      });
+
+      await expect(
+        blobStorageController.uploadBlob(mockFile, uploadDto),
+      ).rejects.toThrow(
+        new BadRequestException(ErrorMessages.FILE_EXTENSION_MISMATCH),
+      );
+
+      expect(
+        fileValidationService.validateMultipartUpload,
+      ).toHaveBeenCalledWith(mockFile, uploadDto.blobName);
+
+      // No debería llamar al servicio de blob si la validación falla
+      expect(blobStorageService.uploadBlob).not.toHaveBeenCalled();
     });
   });
 
@@ -153,7 +224,7 @@ describe('BlobStorageController', () => {
         containerName: 'uploads',
         directory: 'documents/2024',
         blobName: 'test.pdf',
-        fileBase64: 'fileBase64',
+        fileBase64: 'JVBERi0xLjQK', // Base64 válido
         mimeType: 'application/pdf',
       };
 
@@ -180,6 +251,12 @@ describe('BlobStorageController', () => {
         data: mockResult,
       });
 
+      // Verificar que se llamó la validación
+      expect(fileValidationService.validateBase64Upload).toHaveBeenCalledWith(
+        uploadDto.mimeType,
+        uploadDto.blobName,
+      );
+
       expect(blobStorageService.uploadBlobBase64).toHaveBeenCalledWith(
         uploadDto.containerName,
         uploadDto.directory,
@@ -202,6 +279,9 @@ describe('BlobStorageController', () => {
       ).rejects.toThrow(
         new BadRequestException(ErrorMessages.FILE_BASE64_MISSING),
       );
+
+      // No debería llamar la validación si el Base64 está vacío
+      expect(fileValidationService.validateBase64Upload).not.toHaveBeenCalled();
     });
 
     it('should throw error when MIME type is missing', async () => {
@@ -217,6 +297,9 @@ describe('BlobStorageController', () => {
       ).rejects.toThrow(
         new BadRequestException(ErrorMessages.MIME_TYPE_MISSING),
       );
+
+      // No debería llamar la validación si el MIME type está vacío
+      expect(fileValidationService.validateBase64Upload).not.toHaveBeenCalled();
     });
 
     it('should throw error when MIME type is not allowed', async () => {
@@ -234,6 +317,9 @@ describe('BlobStorageController', () => {
           `${ErrorMessages.MIME_TYPE_NOT_ALLOWED} Tipo recibido: application/exe. Tipos permitidos: PDF, Word, Excel, PowerPoint, imágenes (JPEG, PNG, GIF), audio, video, archivos comprimidos, JSON, XML.`,
         ),
       );
+
+      // No debería llamar la validación si el MIME type no está permitido
+      expect(fileValidationService.validateBase64Upload).not.toHaveBeenCalled();
     });
 
     it('should throw error when Base64 file is too large', async () => {
@@ -254,33 +340,66 @@ describe('BlobStorageController', () => {
           message: expect.stringContaining('Bad Request Exception'),
         }),
       );
+
+      // No debería llamar la validación si el archivo es muy grande
+      expect(fileValidationService.validateBase64Upload).not.toHaveBeenCalled();
     });
 
-    it('should accept valid MIME types', async () => {
-      const validMimeTypes = [
-        'application/pdf',
-        'image/jpeg',
-        'image/png',
-        'application/json',
-        'text/plain',
-        'application/zip',
-        'video/mp4',
-        'audio/mp3',
+    it('should throw error when MIME type and extension do not match', async () => {
+      const uploadDto: UploadBlobBase64Dto = {
+        containerName: 'uploads',
+        blobName: 'test.pdf', // PDF extension
+        fileBase64: 'JVBERi0xLjQK',
+        mimeType: 'image/jpeg', // JPEG MIME type - ¡No coinciden!
+      };
+
+      // Mock para que la validación lance error
+      (
+        fileValidationService.validateBase64Upload as jest.Mock
+      ).mockImplementation(() => {
+        throw new BadRequestException(ErrorMessages.FILE_EXTENSION_MISMATCH);
+      });
+
+      await expect(
+        blobStorageController.uploadBlobBase64(uploadDto),
+      ).rejects.toThrow(
+        new BadRequestException(ErrorMessages.FILE_EXTENSION_MISMATCH),
+      );
+
+      expect(fileValidationService.validateBase64Upload).toHaveBeenCalledWith(
+        uploadDto.mimeType,
+        uploadDto.blobName,
+      );
+
+      // No debería llamar al servicio de blob si la validación falla
+      expect(blobStorageService.uploadBlobBase64).not.toHaveBeenCalled();
+    });
+
+    it('should accept valid MIME types with matching extensions', async () => {
+      const testCases = [
+        { mimeType: 'application/pdf', blobName: 'test.pdf' },
+        { mimeType: 'image/jpeg', blobName: 'test.jpg' },
+        { mimeType: 'image/png', blobName: 'test.png' },
+        { mimeType: 'application/json', blobName: 'test.json' },
+        { mimeType: 'text/plain', blobName: 'test.txt' },
+        { mimeType: 'application/zip', blobName: 'test.zip' },
+        { mimeType: 'video/mp4', blobName: 'test.mp4' },
+        { mimeType: 'audio/mp3', blobName: 'test.mp3' },
       ];
 
-      for (const mimeType of validMimeTypes) {
+      for (const testCase of testCases) {
         const uploadDto: UploadBlobBase64Dto = {
           containerName: 'uploads',
-          blobName: 'test-file',
+          blobName: testCase.blobName,
           fileBase64: 'JVBERi0xLjQK',
-          mimeType,
+          mimeType: testCase.mimeType,
         };
 
         const mockResult = {
-          blobUrl: 'https://account.blob.core.windows.net/uploads/test-file',
+          blobUrl: `https://account.blob.core.windows.net/uploads/${testCase.blobName}`,
           containerName: 'uploads',
-          blobName: 'test-file',
-          fullPath: 'test-file',
+          blobName: testCase.blobName,
+          fullPath: testCase.blobName,
           requestId: '123e4567-e89b-12d3-a456-426614174000',
         };
 
@@ -291,10 +410,16 @@ describe('BlobStorageController', () => {
         await expect(
           blobStorageController.uploadBlobBase64(uploadDto),
         ).resolves.not.toThrow();
+
+        expect(fileValidationService.validateBase64Upload).toHaveBeenCalledWith(
+          testCase.mimeType,
+          testCase.blobName,
+        );
       }
     });
   });
 
+  // Resto de tests permanecen igual ya que no usan FileValidationService
   describe('downloadBlobBase64', () => {
     it('should download a blob as Base64 successfully', async () => {
       const downloadDto: DownloadBlobBase64Dto = {

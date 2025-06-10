@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { ErrorMessages } from '@src/shared/enums/error-messages.enum';
 import { SasPermission } from '@src/shared/enums/sas-permission.enum';
 import { BadRequestException } from '@src/shared/exceptions/bad-request.exception';
+import { BusinessErrorException } from '@src/shared/exceptions/business-error.exception';
 import { v4 as uuidv4 } from 'uuid';
 import { SasService } from './sas.service';
 
@@ -280,7 +281,7 @@ export class BlobStorageService {
       console.error('Error downloading blob:', error);
 
       if (error.statusCode === 404) {
-        throw new BadRequestException(ErrorMessages.BLOB_NOT_FOUND);
+        throw new BusinessErrorException(ErrorMessages.BLOB_NOT_FOUND);
       }
 
       if (error.statusCode === 401) {
@@ -349,7 +350,7 @@ export class BlobStorageService {
       console.error('Error downloading Base64 blob:', error);
 
       if (error.statusCode === 404) {
-        throw new BadRequestException(ErrorMessages.BLOB_NOT_FOUND);
+        throw new BusinessErrorException(ErrorMessages.BLOB_NOT_FOUND);
       }
 
       if (error.statusCode === 401) {
@@ -397,7 +398,7 @@ export class BlobStorageService {
 
       // Si no se eliminó, significa que no existía
       if (!deletionResponse.succeeded) {
-        throw new BadRequestException(ErrorMessages.BLOB_NOT_FOUND);
+        throw new BusinessErrorException(ErrorMessages.BLOB_NOT_FOUND);
       }
 
       console.log('Delete completed successfully');
@@ -411,14 +412,13 @@ export class BlobStorageService {
     } catch (error: any) {
       console.error('Error deleting blob:', error);
 
-      // Si ya es una BadRequestException, relanzarla
-      if (error instanceof BadRequestException) {
+      if (error instanceof BusinessErrorException) {
         throw error;
       }
 
       // Manejar errores específicos de Azure
       if (error.statusCode === 404) {
-        throw new BadRequestException(ErrorMessages.BLOB_NOT_FOUND);
+        throw new BusinessErrorException(ErrorMessages.BLOB_NOT_FOUND);
       }
 
       if (error.statusCode === 401) {

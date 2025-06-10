@@ -22,10 +22,6 @@ export function createAppModule() {
           return new EventHubInterceptor(connectionString, eventHubName);
         },
       });
-    } else {
-      console.warn(
-        'EventHub interceptor not registered: Missing or empty EVENT_HUB_CONNECTION_S or EVENT_HUB_QUEUE environment variables',
-      );
     }
 
     return providers;

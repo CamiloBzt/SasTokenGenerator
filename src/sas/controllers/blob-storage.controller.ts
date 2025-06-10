@@ -28,15 +28,19 @@ import { ErrorMessages } from '@src/shared/enums/error-messages.enum';
 import { BadRequestException } from '@src/shared/exceptions/bad-request.exception';
 import { Response } from 'express';
 import { BlobStorageService } from '../services/blob-storage.service';
+import { FileValidationService } from '../services/file-validation.service';
 
 @ApiTags('Blob Storage')
 @Controller('blob')
 export class BlobStorageController {
   // Configuración de límites de archivo
-  private readonly MAX_FILE_SIZE_MB = 6; // 5MB límite
+  private readonly MAX_FILE_SIZE_MB = 6; // 6MB límite
   private readonly MAX_FILE_SIZE_BYTES = this.MAX_FILE_SIZE_MB * 1024 * 1024;
 
-  constructor(private readonly blobStorageService: BlobStorageService) {}
+  constructor(
+    private readonly blobStorageService: BlobStorageService,
+    private readonly fileValidationService: FileValidationService,
+  ) {}
 
   /**
    * Valida el tamaño del archivo multipart
@@ -135,11 +139,11 @@ export class BlobStorageController {
   @UseInterceptors(FileInterceptor('file'))
   @ApiOperation({
     summary: 'Upload a blob (Multipart)',
-    description: `Upload a file to Azure Blob Storage using multipart/form-data. Máximo ${5}MB por archivo.`,
+    description: `Upload a file to Azure Blob Storage using multipart/form-data. Máximo ${6}MB por archivo. La extensión del archivo debe coincidir con el nombre del blob.`,
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
-    description: `Blob upload data (Max ${5}MB)`,
+    description: `Blob upload data (Max ${6}MB). La extensión del archivo original debe coincidir con la extensión en blobName.`,
     type: UploadBlobDto,
   })
   @ApiResponse({
@@ -164,13 +168,13 @@ export class BlobStorageController {
   })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
-    description: 'File too large or invalid',
+    description: 'File too large, invalid extension, or extension mismatch',
     schema: {
       example: {
         status: {
           statusCode: 400,
           statusDescription:
-            'El archivo es demasiado grande. Tamaño actual: 6.2MB. Máximo permitido: 5MB',
+            "La extensión del archivo original '.jpg' no coincide con la extensión del blob '.pdf'.",
         },
       },
     },
@@ -192,8 +196,14 @@ export class BlobStorageController {
     // Validar tamaño del archivo
     this.validateMultipartFileSize(file);
 
+    // Validar extensiones y compatibilidad
+    this.fileValidationService.validateMultipartUpload(
+      file,
+      uploadBlobDto.blobName,
+    );
+
     console.log(
-      `Uploading file: ${file.originalname}, Size: ${(file.buffer.length / 1024 / 1024).toFixed(2)}MB, Type: ${file.mimetype}`,
+      `Uploading file: ${file.originalname} -> ${uploadBlobDto.blobName}, Size: ${(file.buffer.length / 1024 / 1024).toFixed(2)}MB, Type: ${file.mimetype}`,
     );
 
     const result = await this.blobStorageService.uploadBlob(
@@ -215,10 +225,10 @@ export class BlobStorageController {
   @Post('upload/base64')
   @ApiOperation({
     summary: 'Upload a blob (Base64)',
-    description: `Upload a file to Azure Blob Storage using Base64 encoding. Máximo ${5}MB por archivo.`,
+    description: `Upload a file to Azure Blob Storage using Base64 encoding. Máximo ${6}MB por archivo. El tipo MIME debe coincidir con la extensión del blob.`,
   })
   @ApiBody({
-    description: `Base64 blob upload data (Max ${5}MB)`,
+    description: `Base64 blob upload data (Max ${6}MB). El mimeType debe coincidir con la extensión en blobName.`,
     type: UploadBlobBase64Dto,
     examples: {
       pdfExample: {
@@ -264,13 +274,14 @@ export class BlobStorageController {
   })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
-    description: 'File too large, invalid Base64, or unsupported file type',
+    description:
+      'File too large, invalid Base64, unsupported file type, or MIME type mismatch',
     schema: {
       example: {
         status: {
           statusCode: 400,
           statusDescription:
-            'El archivo es demasiado grande. Tamaño actual: 6.2MB. Máximo permitido: 5MB',
+            "La extensión '.pdf' no coincide con el tipo MIME 'image/jpeg'. Extensiones válidas: .jpg, .jpeg",
         },
       },
     },
@@ -294,6 +305,12 @@ export class BlobStorageController {
     // Validar tamaño del archivo Base64
     const fileSizeBytes = this.validateBase64FileSize(
       uploadBlobBase64Dto.fileBase64,
+    );
+
+    // Validar que el MIME type coincida con la extensión del blob
+    this.fileValidationService.validateBase64Upload(
+      uploadBlobBase64Dto.mimeType,
+      uploadBlobBase64Dto.blobName,
     );
 
     console.log(
