@@ -912,4 +912,123 @@ describe('BlobStorageService', () => {
       });
     });
   });
+
+  describe('copyBlob', () => {
+    it('should copy blob successfully and preserve metadata', async () => {
+      const mockSasData = {
+        sasUrl:
+          'https://teststorageaccount.blob.core.windows.net/uploads/test.pdf?sv=...',
+      };
+
+      const mockBlockBlobClient = {
+        exists: jest.fn().mockResolvedValue(true),
+        getProperties: jest.fn().mockResolvedValue({
+          contentType: 'application/pdf',
+          contentEncoding: 'gzip',
+          metadata: { author: 'test', version: '1.0' },
+        }),
+        syncCopyFromURL: jest.fn().mockResolvedValue({ copyStatus: 'success' }),
+        deleteIfExists: jest.fn().mockResolvedValue({}),
+        setHTTPHeaders: jest.fn().mockResolvedValue({}),
+        setMetadata: jest.fn().mockResolvedValue({}),
+      };
+
+      (sasService.generateSasTokenWithParams as jest.Mock).mockResolvedValue(
+        mockSasData,
+      );
+      (storageBlob.BlockBlobClient as unknown as jest.Mock).mockImplementation(
+        () => mockBlockBlobClient,
+      );
+
+      const result = await blobStorageService.copyBlob(
+        'uploads',
+        'documentos/original.pdf',
+        'backup/copia.pdf',
+      );
+
+      expect(result.message).toBe('Blob copied successfully');
+      expect(result.sourcePath).toBe('documentos/original.pdf');
+      expect(result.destinationPath).toBe('backup/copia.pdf');
+
+      // Verificar que NO se llamó deleteIfExists (diferencia con move)
+      expect(mockBlockBlobClient.deleteIfExists).not.toHaveBeenCalled();
+
+      // Verificar que sí se preservaron metadatos
+      expect(mockBlockBlobClient.setHTTPHeaders).toHaveBeenCalled();
+      expect(mockBlockBlobClient.setMetadata).toHaveBeenCalled();
+    });
+
+    it('should throw error when source and destination are the same', async () => {
+      await expect(
+        blobStorageService.copyBlob('uploads', 'file.pdf', 'file.pdf'),
+      ).rejects.toThrow(BadRequestException);
+
+      // No debería llamar al sasService si las rutas son iguales
+      expect(sasService.generateSasTokenWithParams).not.toHaveBeenCalled();
+    });
+
+    it('should throw error when source blob does not exist', async () => {
+      const mockSasData = {
+        sasUrl:
+          'https://teststorageaccount.blob.core.windows.net/uploads/test.pdf?sv=...',
+      };
+
+      const mockBlockBlobClient = {
+        exists: jest.fn().mockResolvedValue(false),
+      };
+
+      (sasService.generateSasTokenWithParams as jest.Mock).mockResolvedValue(
+        mockSasData,
+      );
+      (storageBlob.BlockBlobClient as unknown as jest.Mock).mockImplementation(
+        () => mockBlockBlobClient,
+      );
+
+      await expect(
+        blobStorageService.copyBlob('uploads', 'nonexistent.pdf', 'copy.pdf'),
+      ).rejects.toThrow(BusinessErrorException);
+    });
+
+    it('should handle copy operation with different file types', async () => {
+      const mockSasData = {
+        sasUrl:
+          'https://teststorageaccount.blob.core.windows.net/uploads/image.jpg?sv=...',
+      };
+
+      const mockBlockBlobClient = {
+        exists: jest.fn().mockResolvedValue(true),
+        getProperties: jest.fn().mockResolvedValue({
+          contentType: 'image/jpeg',
+          metadata: { camera: 'Canon', location: 'Beach' },
+        }),
+        syncCopyFromURL: jest.fn().mockResolvedValue({ copyStatus: 'success' }),
+        setHTTPHeaders: jest.fn().mockResolvedValue({}),
+        setMetadata: jest.fn().mockResolvedValue({}),
+      };
+
+      (sasService.generateSasTokenWithParams as jest.Mock).mockResolvedValue(
+        mockSasData,
+      );
+      (storageBlob.BlockBlobClient as unknown as jest.Mock).mockImplementation(
+        () => mockBlockBlobClient,
+      );
+
+      const result = await blobStorageService.copyBlob(
+        'uploads',
+        'fotos/vacaciones.jpg',
+        'backup/fotos/vacaciones-backup.jpg',
+      );
+
+      expect(result.message).toBe('Blob copied successfully');
+      expect(mockBlockBlobClient.setHTTPHeaders).toHaveBeenCalledWith(
+        expect.objectContaining({
+          blobContentType: 'image/jpeg',
+        }),
+      );
+      expect(mockBlockBlobClient.setMetadata).toHaveBeenCalledWith({
+        camera: 'Canon',
+        location: 'Beach',
+      });
+    });
+  });
 });

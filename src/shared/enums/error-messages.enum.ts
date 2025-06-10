@@ -20,4 +20,6 @@ export enum ErrorMessages {
   FILE_EXTENSION_NOT_ALLOWED = 'Extensión de archivo no permitida.',
   BLOB_MOVE_SAME_PATH = 'La ruta de origen y destino no pueden ser la misma.',
   BLOB_MOVE_FAILED = 'Error al mover el archivo.',
+  BLOB_COPY_SAME_PATH = 'La ruta de origen y destino no pueden ser la misma.',
+  BLOB_COPY_FAILED = 'Error al copiar el archivo.',
 }

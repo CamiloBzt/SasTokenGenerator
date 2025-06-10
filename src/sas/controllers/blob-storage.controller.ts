@@ -17,6 +17,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { CopyBlobDto } from '@src/shared/dto/copy-blob.dto';
 import { DeleteBlobDto } from '@src/shared/dto/delete-blob.dto';
 import { DownloadBlobBase64Dto } from '@src/shared/dto/download-blob-base64.dto';
 import { DownloadBlobDto } from '@src/shared/dto/download-blob.dto';
@@ -768,6 +769,112 @@ export class BlobStorageController {
       moveBlobDto.containerName,
       moveBlobDto.sourceBlobPath,
       moveBlobDto.destinationBlobPath,
+    );
+
+    return {
+      status: {
+        statusCode: HttpStatus.OK,
+        statusDescription: 'Operación completada con éxito.',
+      },
+      data: result,
+    };
+  }
+
+  @Post('copy')
+  @ApiOperation({
+    summary: 'Copy a blob to a different location',
+    description:
+      'Copy a file from one location to another within the same container. The original file remains unchanged. If the destination already exists, it will be overwritten.',
+  })
+  @ApiBody({
+    description: 'Copy blob data',
+    type: CopyBlobDto,
+    examples: {
+      copyToBackup: {
+        summary: 'Copy to backup directory',
+        value: {
+          containerName: 'uploads',
+          sourceBlobPath: 'documentos/importante.pdf',
+          destinationBlobPath: 'backup/documentos/importante-backup.pdf',
+        },
+      },
+      duplicateFile: {
+        summary: 'Create duplicate with different name',
+        value: {
+          containerName: 'uploads',
+          sourceBlobPath: 'plantillas/template.docx',
+          destinationBlobPath: 'plantillas/template-v2.docx',
+        },
+      },
+      copyToWorkingDirectory: {
+        summary: 'Copy to working directory',
+        value: {
+          containerName: 'uploads',
+          sourceBlobPath: 'archivos/original.pdf',
+          destinationBlobPath: 'trabajo/en-progreso.pdf',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Blob copied successfully',
+    schema: {
+      example: {
+        status: {
+          statusCode: 200,
+          statusDescription: 'Operación completada con éxito.',
+        },
+        data: {
+          message: 'Blob copied successfully',
+          containerName: 'uploads',
+          sourcePath: 'documentos/importante.pdf',
+          destinationPath: 'backup/documentos/importante-backup.pdf',
+          requestId: '123e4567-e89b-12d3-a456-426614174000',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid request - same source and destination paths',
+    schema: {
+      example: {
+        status: {
+          statusCode: 400,
+          statusDescription:
+            'La ruta de origen y destino no pueden ser la misma.',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.PARTIAL_CONTENT,
+    description: 'Source blob not found',
+    schema: {
+      example: {
+        status: {
+          statusCode: 206,
+          statusDescription: 'El archivo especificado no existe.',
+        },
+      },
+    },
+  })
+  @HttpCode(HttpStatus.OK)
+  async copyBlobPost(@Body() copyBlobDto: CopyBlobDto): Promise<{
+    status: { statusCode: number; statusDescription: string };
+    data: {
+      message: string;
+      containerName: string;
+      sourcePath: string;
+      destinationPath: string;
+      requestId: string;
+    };
+  }> {
+    const result = await this.blobStorageService.copyBlob(
+      copyBlobDto.containerName,
+      copyBlobDto.sourceBlobPath,
+      copyBlobDto.destinationBlobPath,
     );
 
     return {

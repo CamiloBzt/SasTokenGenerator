@@ -1,15 +1,16 @@
 import { HttpStatus } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { CopyBlobDto } from '@src/shared/dto/copy-blob.dto';
 import { DownloadBlobBase64Dto } from '@src/shared/dto/download-blob-base64.dto';
+import { MoveBlobDto } from '@src/shared/dto/move-blob.dto';
 import { UploadBlobBase64Dto } from '@src/shared/dto/upload-blob-base64.dto';
 import { UploadBlobDto } from '@src/shared/dto/upload-blob-dto';
 import { ErrorMessages } from '@src/shared/enums/error-messages.enum';
 import { BadRequestException } from '@src/shared/exceptions/bad-request.exception';
+import { BusinessErrorException } from '@src/shared/exceptions/business-error.exception';
 import { BlobStorageController } from '../../src/sas/controllers/blob-storage.controller';
 import { BlobStorageService } from '../../src/sas/services/blob-storage.service';
 import { FileValidationService } from '../../src/sas/services/file-validation.service';
-import { MoveBlobDto } from '@src/shared/dto/move-blob.dto';
-import { BusinessErrorException } from '@src/shared/exceptions/business-error.exception';
 
 describe('BlobStorageController', () => {
   let blobStorageController: BlobStorageController;
@@ -26,6 +27,7 @@ describe('BlobStorageController', () => {
       listBlobs: jest.fn(),
       listBlobsInDirectory: jest.fn(),
       moveBlob: jest.fn(),
+      copyBlob: jest.fn(),
     };
 
     fileValidationService = {
@@ -799,6 +801,126 @@ describe('BlobStorageController', () => {
         'Archivo_2.pdf',
         'documentos/Archivo_2.pdf',
       );
+    });
+  });
+
+  describe('copyBlob (POST)', () => {
+    it('should copy a blob successfully', async () => {
+      const copyBlobDto: CopyBlobDto = {
+        containerName: 'uploads',
+        sourceBlobPath: 'documentos/original.pdf',
+        destinationBlobPath: 'backup/documentos/copia.pdf',
+      };
+
+      const mockResult = {
+        message: 'Blob copied successfully',
+        containerName: 'uploads',
+        sourcePath: 'documentos/original.pdf',
+        destinationPath: 'backup/documentos/copia.pdf',
+        requestId: '123e4567-e89b-12d3-a456-426614174000',
+      };
+
+      (blobStorageService.copyBlob as jest.Mock).mockResolvedValue(mockResult);
+
+      const result = await blobStorageController.copyBlobPost(copyBlobDto);
+
+      expect(result).toEqual({
+        status: {
+          statusCode: HttpStatus.OK,
+          statusDescription: 'Operación completada con éxito.',
+        },
+        data: mockResult,
+      });
+
+      expect(blobStorageService.copyBlob).toHaveBeenCalledWith(
+        copyBlobDto.containerName,
+        copyBlobDto.sourceBlobPath,
+        copyBlobDto.destinationBlobPath,
+      );
+    });
+
+    it('should create backup copy successfully', async () => {
+      const copyBlobDto: CopyBlobDto = {
+        containerName: 'uploads',
+        sourceBlobPath: 'Archivo_1.pdf',
+        destinationBlobPath: 'backup/Archivo_1-backup.pdf',
+      };
+
+      const mockResult = {
+        message: 'Blob copied successfully',
+        containerName: 'uploads',
+        sourcePath: 'Archivo_1.pdf',
+        destinationPath: 'backup/Archivo_1-backup.pdf',
+        requestId: '456e7890-e12b-34c5-d678-901234567890',
+      };
+
+      (blobStorageService.copyBlob as jest.Mock).mockResolvedValue(mockResult);
+
+      const result = await blobStorageController.copyBlobPost(copyBlobDto);
+
+      expect(result).toEqual({
+        status: {
+          statusCode: HttpStatus.OK,
+          statusDescription: 'Operación completada con éxito.',
+        },
+        data: mockResult,
+      });
+    });
+
+    it('should create working copy successfully', async () => {
+      const copyBlobDto: CopyBlobDto = {
+        containerName: 'uploads',
+        sourceBlobPath: 'plantillas/base-template.docx',
+        destinationBlobPath: 'trabajo/documento-trabajo.docx',
+      };
+
+      const mockResult = {
+        message: 'Blob copied successfully',
+        containerName: 'uploads',
+        sourcePath: 'plantillas/base-template.docx',
+        destinationPath: 'trabajo/documento-trabajo.docx',
+        requestId: '789e0123-e45f-67g8-h901-234567890123',
+      };
+
+      (blobStorageService.copyBlob as jest.Mock).mockResolvedValue(mockResult);
+
+      const result = await blobStorageController.copyBlobPost(copyBlobDto);
+
+      expect(result.data.message).toBe('Blob copied successfully');
+      expect(result.data.sourcePath).toBe('plantillas/base-template.docx');
+      expect(result.data.destinationPath).toBe(
+        'trabajo/documento-trabajo.docx',
+      );
+    });
+
+    it('should throw error when source blob does not exist', async () => {
+      const copyBlobDto: CopyBlobDto = {
+        containerName: 'uploads',
+        sourceBlobPath: 'archivo-inexistente.pdf',
+        destinationBlobPath: 'backup/archivo.pdf',
+      };
+
+      const error = new BusinessErrorException(ErrorMessages.BLOB_NOT_FOUND);
+      (blobStorageService.copyBlob as jest.Mock).mockRejectedValue(error);
+
+      await expect(
+        blobStorageController.copyBlobPost(copyBlobDto),
+      ).rejects.toThrow(BusinessErrorException);
+    });
+
+    it('should throw error when source and destination paths are the same', async () => {
+      const copyBlobDto: CopyBlobDto = {
+        containerName: 'uploads',
+        sourceBlobPath: 'documento.pdf',
+        destinationBlobPath: 'documento.pdf',
+      };
+
+      const error = new BadRequestException(ErrorMessages.BLOB_COPY_SAME_PATH);
+      (blobStorageService.copyBlob as jest.Mock).mockRejectedValue(error);
+
+      await expect(
+        blobStorageController.copyBlobPost(copyBlobDto),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 
