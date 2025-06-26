@@ -8,4 +8,7 @@ export const validationSchema = Joi.object({
   'PENDIG-CLIENT-ID-TOKEN': Joi.string().required(),
   'PENDIG-CLIENT-SECRET-TOKEN': Joi.string().required(),
   'PENDIG-CLAVE-STORAGE-ACCOUNT': Joi.string().required(),
+  'PENDIG-CONTAINER-STORAGE-ACCOUNT-PUBLICO': Joi.string().required(),
+  'PENDIG-CLAVE-STORAGE-ACCOUNT-PUBLICO': Joi.string().required(),
+  'PENDIG-PUBLIC-CUSTOM-DOMAIN': Joi.string().required(),
 });

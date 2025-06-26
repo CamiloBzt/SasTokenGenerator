@@ -26,6 +26,9 @@ describe('Validation Schema', () => {
       'PENDIG-CLIENT-ID-TOKEN': 'myClient',
       'PENDIG-CLIENT-SECRET-TOKEN': 'mySecret',
       'PENDIG-CLAVE-STORAGE-ACCOUNT': 'myClave',
+      'PENDIG-CONTAINER-STORAGE-ACCOUNT-PUBLICO': 'myContainerPublico',
+      'PENDIG-CLAVE-STORAGE-ACCOUNT-PUBLICO': 'myClavePublico',
+      'PENDIG-PUBLIC-CUSTOM-DOMAIN': 'myCustomDomain',
     };
     const { value, error } = validationSchema.validate(input);
     expect(error).toBeUndefined();
@@ -37,6 +40,9 @@ describe('Validation Schema', () => {
       'PENDIG-CLIENT-ID-TOKEN': 'myClient',
       'PENDIG-CLIENT-SECRET-TOKEN': 'mySecret',
       'PENDIG-CLAVE-STORAGE-ACCOUNT': 'myClave',
+      'PENDIG-CONTAINER-STORAGE-ACCOUNT-PUBLICO': 'myContainerPublico',
+      'PENDIG-CLAVE-STORAGE-ACCOUNT-PUBLICO': 'myClavePublico',
+      'PENDIG-PUBLIC-CUSTOM-DOMAIN': 'myCustomDomain',
     });
   });
 

@@ -9,371 +9,558 @@
 [![Node.js](https://img.shields.io/badge/Node.js-22.x-blue)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)](https://www.typescriptlang.org/)
 [![NPM](https://img.shields.io/badge/NPM-11.x-blue)](https://www.npmjs.com/)
+[![NestJS](https://img.shields.io/badge/NestJS-10.x-red)](https://nestjs.com/)
 
 ## **Introducción**
 
-Este proyecto implementa un servicio backend para la generación segura de SAS Tokens en Azure Blob Storage, utilizando autenticación con Azure Active Directory (Azure AD) y delegación de usuario (User Delegation Key). Su objetivo es proveer un mecanismo centralizado para acceder a blobs protegidos mediante tokens temporales firmados, sin exponer credenciales sensibles en el frontend.
+Este proyecto implementa un ecosistema completo de servicios backend para la gestión segura de Azure Blob Storage, incluyendo generación de SAS Tokens, operaciones CRUD de archivos, y gestión de contenedores públicos y privados. Utiliza autenticación con Azure Active Directory (Azure AD) y delegación de usuario (User Delegation Key) para proporcionar un mecanismo centralizado y seguro para el manejo de blobs.
 
-### **Informacion del servicio**
+### **Información del servicio**
 
 - **Nombre del servicio:** pendig-seguridad-ms-sas-generator-nodejs
-
 - **Lenguaje:** Node.js (20.x), TypeScript
-
-- **Framework:** Express
-
+- **Framework:** NestJS con Express
 - **Almacenamiento:** Azure Blob Storage
-
 - **Seguridad:** Azure AD + RBAC (Storage Blob Delegator + Reader)
 
 ### **Descripción**
 
-- **Funcionalidad Principal:** Este servicio genera URLs temporales firmadas (SAS Tokens) para acceder de forma segura a archivos almacenados en Azure Blob Storage.
+Este servicio proporciona una API RESTful completa para:
 
-- **Propósito:** Proteger el acceso a blobs restringiendo el tiempo, IP y permisos mediante SAS Tokens generados a partir de credenciales autenticadas con Azure Active Directory.
+- **Generación de SAS Tokens:** URLs temporales firmadas para acceso seguro a blobs
+- **Gestión de Archivos:** Upload, download, delete, move, copy de archivos
+- **Soporte Multiformat:** Archivos multipart y Base64
+- **Contenedores Públicos:** Exposición temporal de archivos para acceso público
+- **Validación Avanzada:** Tipos MIME, tamaños de archivo y extensiones
+- **Seguridad:** Restricciones por IP, tiempo de expiración y permisos granulares
 
-- **Seguridad:** Utiliza autenticación basada en Azure AD y delegación de permisos con UserDelegationKey, sin exponer claves de acceso a nivel de cuenta.
+### **Servicios Disponibles**
 
-- **Restricciones configurables:** Tiempo de expiración, dirección IP, tipo de operación (lectura).
+#### 🔐 **SAS Token Generator**
+
+- Generación de URLs firmadas temporales
+- Autenticación con Azure AD
+- Restricciones por IP y tiempo
+- User Delegation Key para máxima seguridad
+
+#### 📁 **Blob Storage Management**
+
+- Upload de archivos (multipart/Base64)
+- Download de archivos (binario/Base64)
+- Operaciones de archivo (move, copy, delete)
+- Listado de contenedores y directorios
+
+#### 🌐 **Public Blob Exposure**
+
+- Exposición temporal de archivos privados
+- Generación de URLs públicas con expiración
+- Soporte para contenedores públicos
 
 ### **Especificaciones Técnicas**
 
-#### **Tecnología a utilizar**
+#### **Tecnología utilizada**
 
-- Lenguaje de Programación: Node.js 20.x + TypeScript 5.x
-
-- Framework: Express.js
-
-- Autenticación: Azure Active Directory (@azure/identity)
-
-- Cliente de Azure Storage: @azure/storage-blob
+- **Lenguaje:** Node.js 20.x + TypeScript 5.x
+- **Framework:** NestJS con Express.js
+- **Autenticación:** Azure Active Directory (@azure/identity)
+- **Cliente de Storage:** @azure/storage-blob
+- **Documentación:** Swagger/OpenAPI
+- **Testing:** Jest
+- **Validación:** class-validator, class-transformer
 
 #### **Servicios de Azure involucrados**
 
-- Azure Blob Storage
-
-- Azure Active Directory (App Registration)
-
-- Azure Role-Based Access Control (RBAC):
-
-- Storage Blob Delegator a nivel de cuenta
-
-- Storage Blob Data Reader a nivel de contenedor
+- **Azure Blob Storage**
+- **Azure Active Directory (App Registration)**
+- **Azure Role-Based Access Control (RBAC):**
+  - Storage Blob Delegator a nivel de cuenta
+  - Storage Blob Data Reader a nivel de contenedor
+  - Storage Blob Data Contributor para operaciones de escritura
 
 #### **Características adicionales**
 
-- Generación de SAS tokens con UserDelegationKey de manera segura
-
-- Soporte para restricción de IP (ipRange)
-
-- Tokens válidos por tiempo corto (configurable)
+- Validación de tipos MIME permitidos
+- Límites de tamaño de archivo configurables (6MB por defecto)
+- Soporte para directorios virtuales
+- Generación de identificadores únicos de solicitud
+- Logging detallado de operaciones
+- Manejo robusto de errores
+- Documentación automática con Swagger
 
 ### **Descripción Funcionalidad del Servicio**
 
-El proyecto se divide en dos componentes principales:
+El proyecto se organiza en múltiples controladores especializados:
 
-1. **Solicitud de SAS Token:**
-   A través de un endpoint expuesto, el frontend puede solicitar un SAS Token proporcionando únicamente la URL del blob de destino. El servicio se encarga de:
+#### **1. SAS Controller (`/sas`)**
 
-- Validar el formato de la URL
+Maneja la generación de tokens de acceso seguro:
 
-- Extraer el contenedor y nombre del blob
+- **Generación por URL:** Recibe una URL de blob y genera un SAS token
+- **Generación parametrizada:** Permite especificar contenedor, archivo, permisos y duración
+- **Validación de IP:** Restringe el acceso por dirección IP del cliente
+- **Expiración configurable:** Tokens válidos por tiempo específico
 
-- Generar un token temporal utilizando UserDelegationKey autenticado vía Azure AD
+#### **2. Blob Storage Controller (`/blob`)**
 
-- Restringir el acceso opcionalmente por IP del cliente
+Gestiona todas las operaciones CRUD de archivos:
 
-2. **Generación del SAS Token con seguridad delegada:**
-   Se usa la librería oficial de Azure (@azure/storage-blob) y un cliente autenticado vía ClientSecretCredential para solicitar un UserDelegationKey. Este token es firmado bajo los permisos y duración definidos (lectura por 5 minutos, por ejemplo), y devuelto al cliente para ser utilizado en el acceso directo al blob.
+- **Upload:** Subida de archivos multipart o Base64
+- **Download:** Descarga en formato binario o Base64
+- **Delete:** Eliminación segura de archivos
+- **Move/Copy:** Reorganización de estructura de archivos
+- **List:** Listado de archivos por contenedor o directorio
 
-Este enfoque permite:
+#### **3. Public Blob Management**
 
-- Control granular de acceso a blobs
+Exposición temporal de archivos privados:
 
-- Expiración automática del token
+- **Expose Public:** Convierte archivos privados en URLs públicas temporales
+- **List Public:** Lista archivos disponibles en contenedores públicos
+- **Time-based Expiration:** URLs que expiran automáticamente
 
-- Evitar exposición de claves de cuenta
-
-- Aplicación de políticas de red (IP) y tiempo
-
-Además, si el cliente no cuenta con el rol de Storage Blob Data Reader en el contenedor, aunque tenga un SAS token válido, no podrá acceder al blob, añadiendo una capa de seguridad adicional.
+### **Diagramas del Sistema**
 
 #### **1. Diagrama de contexto**
 
-El siguiente diagrama de contexto ilustra cómo se genera un SAS Token a partir de una solicitud desde el frontend. Se incluyen validaciones de seguridad como control de IP y permisos de acceso, y se refleja el uso de Azure AD para autenticación y autorización sobre el Storage Account.
-
-El sistema contempla dos posibles respuestas:
-
-- **SAS Token válido:** Devuelto al cliente si cumple con las políticas y permisos requeridos.
-
-- **Error de autorización:** Se retorna si el usuario o la aplicación no cuenta con los roles adecuados o si la URL del blob es inválida.
-
 ```mermaid
 flowchart TD
-  subgraph RESPUESTAS["Respuestas posibles"]
-      TOKEN["SAS Token generado <br> válido por 5 minutos"]
-      ERROR["Error de autorización <br> Falta de permisos o URL inválida"]
-  end
-
   subgraph USUARIOS["Actores del sistema"]
       Frontend["Frontend Cliente"]
+      Admin["Administrador"]
   end
 
-  Frontend -- 1. Solicita SAS Token con URL --> API["SAS Token Service (Node.js)"]
-  API -- 2. Valida URL y IP cliente --> VALID["Validador de Seguridad"]
-  VALID -- 3. Autenticación con Azure AD --> AZUREAD["Azure Active Directory"]
-  AZUREAD -- 4. Devuelve credencial --> API
-  API -- 5. Solicita UserDelegationKey --> STORAGE["Azure Blob Storage"]
-  STORAGE -- 6. Devuelve UserDelegationKey --> API
-  API -- 7. Genera SAS Token --> RESPUESTAS
-  RESPUESTAS --> Frontend
+  subgraph SERVICIOS["Servicios del Sistema"]
+      SAS["SAS Token Service"]
+      BLOB["Blob Management Service"]
+      PUBLIC["Public Blob Service"]
+  end
+
+  subgraph AZURE["Servicios Azure"]
+      AZUREAD["Azure Active Directory"]
+      STORAGE["Azure Blob Storage"]
+      RBAC["Azure RBAC"]
+  end
+
+  subgraph OPERATIONS["Operaciones Disponibles"]
+      TOKEN["Generar SAS Tokens"]
+      UPLOAD["Upload Archivos"]
+      DOWNLOAD["Download Archivos"]
+      MANAGE["Gestionar Archivos"]
+      EXPOSE["Exponer Públicamente"]
+  end
+
+  Frontend --> SAS
+  Frontend --> BLOB
+  Admin --> PUBLIC
+
+  SAS --> TOKEN
+  BLOB --> UPLOAD
+  BLOB --> DOWNLOAD
+  BLOB --> MANAGE
+  PUBLIC --> EXPOSE
+
+  TOKEN --> AZUREAD
+  UPLOAD --> STORAGE
+  DOWNLOAD --> STORAGE
+  MANAGE --> STORAGE
+  EXPOSE --> STORAGE
+
+  AZUREAD --> RBAC
+  RBAC --> STORAGE
 
   Frontend:::clientPosition
+  Admin:::adminPosition
   classDef clientPosition fill:#3b82f6,stroke-width:2px
+  classDef adminPosition fill:#10b981,stroke-width:2px
 ```
 
-#### **2. Diagrama de sequencia**
+#### **2. Estructura de archivos**
 
-Este diagrama de secuencia muestra la interacción temporal entre el frontend, el servicio SAS Token y los componentes de Azure necesarios para generar un SAS Token seguro.
-
-Se representa todo el flujo desde la solicitud de URL firmada hasta su entrega, incluyendo validaciones, autenticación con Azure AD y uso del servicio de blobs.
-
-```mermaid
-sequenceDiagram
-    actor Cliente as Frontend Cliente
-    participant API as SAS Token Service (Node.js)
-    participant AZUREAD as Azure AD (App Registrada)
-    participant BLOB as Azure Blob Storage
-
-    %% Flujo de solicitud del SAS Token
-    Cliente->>API: Solicita SAS Token (POST /generate-sas) con URL
-    API->>API: Valida URL y extrae container/blob
-    API->>AZUREAD: Autenticación con ClientId/Secret (Client Credentials Flow)
-    AZUREAD-->>API: Devuelve Token de acceso
-    API->>BLOB: Solicita UserDelegationKey con el token
-    BLOB-->>API: Devuelve UserDelegationKey
-    API->>API: Genera SAS Token firmado (IP limitada, duración corta)
-    API-->>Cliente: Devuelve URL firmada con SAS Token
-
-    %% Posibles errores
-    alt Falta de permisos o token inválido
-        BLOB-->>API: Error 403 AuthorizationPermissionMismatch
-        API-->>Cliente: Error: No autorizado para generar SAS Token
-    end
 ```
-
-#### **3. Diagrama de paquetes**
-
-Este diagrama de paquetes representa la estructura organizativa del proyecto pendig-seguridad-ms-sas-generator-nodejs, el cual está desarrollado en Node.js con Express. El sistema está dividido modularmente en controladores, servicios, utilidades y configuración. Esta estructura mantiene el código desacoplado, escalable y fácil de mantener.
-
-```mermaid
-classDiagram
-    class pendig_seguridad_ms_sas_generator_nodejs {
-        Proyecto principal
-    }
-
-    class config_files {
-        Archivos de configuración
-        .env
-        .gitignore
-        package.json
-        tsconfig.json
-    }
-
-    class src {
-        Código fuente
-    }
-
-    class controllers {
-        Controladores
-        handleGenerateSas.ts
-    }
-
-    class services {
-        Servicios
-        generateSas.ts
-    }
-
-    class app_core {
-        Core de aplicación
-        app.ts
-        server.ts
-    }
-
-    class test {
-        Pruebas
-        generateSas.test.ts
-    }
-
-    pendig_seguridad_ms_sas_generator_nodejs --* config_files
-    pendig_seguridad_ms_sas_generator_nodejs --* src
-    pendig_seguridad_ms_sas_generator_nodejs --* test
-
-    src --* app_core
-    src --* controllers
-    src --* services
-```
-
-##### 5.Estructura de archivos
-
-```Code
 └── 📁pendig-seguridad-ms-sas-generator-nodejs
-    └── 📁node_modules
     └── 📁src
         └── 📁controllers
             └── 📁__tests__
-                └── sas.controller.test.ts       # Pruebas unitarias para el controlador
-            └── sas.controller.ts                # Controlador principal para generación de SAS
-        └── 📁routes
-            └── sas.ts                           # Definición de rutas relacionadas con SAS Token
+                └── sas.controller.test.ts
+                └── blob-storage.controller.test.ts
+            └── sas.controller.ts
+            └── blob-storage.controller.ts
         └── 📁services
             └── 📁__mocks__
-                └── generateSas.ts               # Mock para pruebas del servicio de SAS
-            └── generateSas.ts                   # Lógica de negocio para generar SAS Token
-        └── app.ts                               # Configuración y carga de middlewares de Express
-        └── server.ts                            # Punto de arranque del servidor HTTP
-    └── .env                                     # Variables de entorno por defecto
-    └── .env.development                         # Configuración para entorno de desarrollo
-    └── .env.production                          # Configuración para entorno de producción
-    └── .env.qa                                  # Configuración para entorno QA
-    └── .gitignore                               # Ignora archivos/carpetas para Git
-    └── jest.config.js                           # Configuración de Jest para pruebas
-    └── package-lock.json                        # Lockfile de dependencias
-    └── package.json                             # Dependencias y scripts del proyecto
-    └── README.md                                # Documentación del proyecto
-    └── tsconfig.json                            # Configuración de TypeScript
+                └── sas.service.ts
+                └── blob-storage.service.ts
+                └── file-validation.service.ts
+            └── sas.service.ts
+            └── blob-storage.service.ts
+            └── file-validation.service.ts
+        └── 📁shared
+            └── 📁dto
+                └── generate-sas-token.dto.ts
+                └── upload-blob.dto.ts
+                └── download-blob.dto.ts
+                └── delete-blob.dto.ts
+                └── copy-blob.dto.ts
+                └── move-blob.dto.ts
+                └── expose-public-blob.dto.ts
+                └── list-blobs.dto.ts
+            └── 📁enums
+                └── error-messages.enum.ts
+                └── http-status-codes.enum.ts
+            └── 📁exceptions
+                └── bad-request.exception.ts
+            └── 📁decorators
+                └── swagger-responses.decorator.ts
+        └── 📁common
+            └── 📁utils
+                └── ip-validation.util.ts
+                └── url-parser.util.ts
+        └── 📁routes
+            └── sas.routes.ts
+            └── blob.routes.ts
+        └── app.module.ts
+        └── main.ts
+    └── 📁test
+        └── app.e2e-spec.ts
+    └── .env.development
+    └── .env.production
+    └── .env.qa
+    └── nest-cli.json
+    └── package.json
+    └── tsconfig.json
+    └── README.md
 ```
 
-## Documentación de Endpoints - SAS Token Generator
+## **Documentación de Endpoints**
 
-A continuación se detalla el uso del servicio pendig-seguridad-ms-sas-generator-nodejs, una API segura encargada de generar tokens SAS temporales para el acceso a contenedores privados en Azure Blob Storage.
+### **SAS Token Generator**
 
-Esta herramienta actúa como middleware entre las aplicaciones frontend y Azure Blob Storage, delegando de forma segura la generación de URLs firmadas para descarga o acceso temporal de blobs.
+#### **Generar SAS Token por URL**
 
-### Endpoints de Generación SAS
+| **Campo**       | **Valor**                                                               |
+| --------------- | ----------------------------------------------------------------------- |
+| **Endpoint**    | `POST /sas/generate-sas-url`                                            |
+| **Descripción** | Genera una URL con SAS Token para acceder a un archivo específico       |
+| **Headers**     | `x-forwarded-for: <IP_del_cliente>`                                     |
+| **Body**        | `{ "url": "https://storage.blob.core.windows.net/container/file.pdf" }` |
 
-#### Generar SAS Token
+**Respuesta exitosa:**
 
-<table>
-  <tr>
-    <td><strong>Endpoint</strong></td>
-    <td><code>POST /generate-sas</code></td>
-  </tr>
-  <tr>
-    <td><strong>Descripción</strong></td>
-    <td>
-      Genera una URL con SAS Token para acceder a un archivo en Azure Blob
-      Storage
-    </td>
-  </tr>
-  <tr>
-    <td><strong>Headers</strong></td>
-    <td>
-      <code>x-forwarded-for</code>: <code>&lt;IP_del_cliente&gt;</code><br />
-      <i>(Debe enviar la dirección IP del cliente que solicita el SAS Token)</i>
-    </td>
-  </tr>
-  <tr>
-    <td><strong>Body</strong></td>
-    <td>
-      <pre>
-      { 
-        "url": "https://mystorageaccount.blob.core.windows.net/uploads/evidencia.pdf"
-      } 
-      </pre>
-    </td>
-  </tr>
-  <tr>
-    <td><strong>Respuesta</strong></td>
-    <td>
-      <pre>
-        {
-            "status": {
-                  "statusCode": 200,
-                  "statusDescription": "Operación completada con exito.",
-              },
-            "data": {
-                "response": {
-                    "sasUrl": "https://mystorageaccount.blob.core.windows.net/uploads/evidencia.pdf?sv=2023-11-03&st=2024-04-04T21%3A00%3A00Z&se=2024-04-04T21%3A30%3A00Z&sr=b&sp=r&sig=..."
-                    }
-                } 
-            } 
-        </pre
-      >
-    </td>
-  </tr>
-   <tr>
-    <td><strong>Body</strong></td>
-    <td>
-      <pre>
-        {} 
-      </pre>
-    </td>
-  </tr>
-  <tr>
-    <td><strong>Respuesta</strong></td>
-    <td>
-      <pre>
-        {
-            "status": {
-                  "statusCode": 400,
-                  "statusDescription": "No se pudo extraer el nombre del contenedor o blob desde la URL.",
-              },
-            "data": {
-                "response": null
-                } 
-            } 
-        </pre
-      >
-    </td>
-  </tr>
-   <tr>
-    <td><strong>Body</strong></td>
-    <td>
-      <pre>
-      { 
-        "url": "https://mystorageaccount.blob.core.windows.net/uploads/evidencia.pdf"
-      } 
-      </pre>
-    </td>
-  </tr>
-  <tr>
-    <td><strong>Respuesta</strong></td>
-    <td>
-      <pre>
-        {
-          "status": {
-            "statusCode": 403,
-            "statusDescription": "Tu aplicación no tiene permisos para generar SAS Tokens."
-          },
-          "data": {
-            "response": null
-          }
-        }
-        </pre
-      >
-    </td>
-  </tr>
-</table>
+```json
+{
+  "status": {
+    "statusCode": 200,
+    "statusDescription": "Operación completada con éxito."
+  },
+  "data": {
+    "sasUrl": "https://storage.blob.core.windows.net/container/file.pdf?sv=2024-04-03...",
+    "sasToken": "sv=2024-04-03&st=2024-04-03T18:00:00Z...",
+    "permissions": "r",
+    "expiresOn": "2024-04-03T18:05:00Z",
+    "containerName": "uploads",
+    "blobName": "file.pdf",
+    "requestId": "1234567890-abc123def"
+  }
+}
+```
 
-### Ejemplos de uso
+#### **Generar SAS Token Parametrizado**
 
-- Solicitud exitosa:
+| **Campo**       | **Valor**                                                                                                  |
+| --------------- | ---------------------------------------------------------------------------------------------------------- |
+| **Endpoint**    | `POST /sas/generate-sas-token`                                                                             |
+| **Descripción** | Genera un SAS Token con parámetros específicos                                                             |
+| **Body**        | `{ "containerName": "uploads", "fileName": "document.pdf", "permissions": "rw", "expirationMinutes": 60 }` |
+
+### **Blob Storage Management**
+
+#### **Upload de Archivos**
+
+##### **Upload Multipart**
+
+| **Campo**        | **Valor**                                             |
+| ---------------- | ----------------------------------------------------- |
+| **Endpoint**     | `POST /blob/upload`                                   |
+| **Content-Type** | `multipart/form-data`                                 |
+| **Descripción**  | Sube un archivo usando multipart/form-data (máx. 6MB) |
+
+**Form Data:**
+
+```
+file: [archivo_binario]
+containerName: uploads
+blobName: documento.pdf
+directory: documentos/2024
+```
+
+##### **Upload Base64**
+
+| **Campo**        | **Valor**                                       |
+| ---------------- | ----------------------------------------------- |
+| **Endpoint**     | `POST /blob/upload/base64`                      |
+| **Content-Type** | `application/json`                              |
+| **Descripción**  | Sube un archivo codificado en Base64 (máx. 6MB) |
+
+**Body:**
+
+```json
+{
+  "containerName": "uploads",
+  "blobName": "documento.pdf",
+  "directory": "documentos/2024",
+  "fileBase64": "JVBERi0xLjQKMSAwIG9iago8PAovVHlwZSAvQ2F0YWxvZwo...",
+  "mimeType": "application/pdf"
+}
+```
+
+#### **Download de Archivos**
+
+##### **Download Binario**
+
+| **Campo**       | **Valor**                              |
+| --------------- | -------------------------------------- |
+| **Endpoint**    | `POST /blob/download`                  |
+| **Response**    | `application/octet-stream`             |
+| **Descripción** | Descarga un archivo en formato binario |
+
+##### **Download Base64**
+
+| **Campo**       | **Valor**                                |
+| --------------- | ---------------------------------------- |
+| **Endpoint**    | `POST /blob/download/base64`             |
+| **Response**    | `application/json`                       |
+| **Descripción** | Descarga un archivo codificado en Base64 |
+
+#### **Gestión de Archivos**
+
+##### **Eliminar Archivo**
+
+| **Campo**       | **Valor**                             |
+| --------------- | ------------------------------------- |
+| **Endpoint**    | `POST /blob/delete`                   |
+| **Descripción** | Elimina un archivo del almacenamiento |
+
+##### **Mover Archivo**
+
+| **Campo**       | **Valor**                              |
+| --------------- | -------------------------------------- |
+| **Endpoint**    | `POST /blob/move`                      |
+| **Descripción** | Mueve un archivo a una nueva ubicación |
+
+**Body:**
+
+```json
+{
+  "containerName": "uploads",
+  "sourceBlobPath": "temporal/documento.pdf",
+  "destinationBlobPath": "documentos/2024/documento-final.pdf"
+}
+```
+
+##### **Copiar Archivo**
+
+| **Campo**       | **Valor**                              |
+| --------------- | -------------------------------------- |
+| **Endpoint**    | `POST /blob/copy`                      |
+| **Descripción** | Copia un archivo a una nueva ubicación |
+
+#### **Listado de Archivos**
+
+##### **Listar Archivos en Contenedor**
+
+| **Campo**       | **Valor**                                 |
+| --------------- | ----------------------------------------- |
+| **Endpoint**    | `POST /blob/list`                         |
+| **Descripción** | Lista todos los archivos en un contenedor |
+
+##### **Listar Archivos en Directorio**
+
+| **Campo**       | **Valor**                                  |
+| --------------- | ------------------------------------------ |
+| **Endpoint**    | `POST /blob/list/directory`                |
+| **Descripción** | Lista archivos en un directorio específico |
+
+### **Public Blob Management**
+
+#### **Exponer Archivo Públicamente**
+
+| **Campo**       | **Valor**                                             |
+| --------------- | ----------------------------------------------------- |
+| **Endpoint**    | `POST /blob/expose-public`                            |
+| **Descripción** | Crea una URL pública temporal para un archivo privado |
+
+**Body:**
+
+```json
+{
+  "containerName": "uploads",
+  "blobName": "documento.pdf",
+  "directory": "documentos/confidenciales",
+  "expirationMinutes": 60,
+  "base64": false
+}
+```
+
+**Respuesta:**
+
+```json
+{
+  "status": {
+    "statusCode": 200,
+    "statusDescription": "Operación completada con éxito."
+  },
+  "data": {
+    "sasToken": "sv=2024-04-03&st=2024-04-03T18:00:00Z...",
+    "sasUrl": "https://publicstore.blob.core.windows.net/public/documento.pdf?sv=...",
+    "permissions": "r",
+    "expiresOn": "2024-04-03T19:00:00Z",
+    "contentType": "application/pdf",
+    "containerName": "uploads",
+    "blobName": "documento.pdf",
+    "fullPath": "documentos/confidenciales/documento.pdf",
+    "size": 1048576,
+    "requestId": "123e4567-e89b-12d3-a456-426614174000"
+  }
+}
+```
+
+#### **Listar Archivos Públicos**
+
+| **Campo**       | **Valor**                                           |
+| --------------- | --------------------------------------------------- |
+| **Endpoint**    | `POST /blob/list-public`                            |
+| **Descripción** | Lista archivos disponibles en el contenedor público |
+
+## **Validaciones y Restricciones**
+
+### **Tipos de Archivo Soportados**
+
+- **Documentos:** PDF, Word (.doc, .docx), Excel (.xls, .xlsx), PowerPoint (.ppt, .pptx), TXT, CSV
+- **Imágenes:** JPEG, PNG, GIF, BMP, WebP, SVG
+- **Audio:** MP3, WAV
+- **Video:** MP4, AVI, QuickTime
+- **Comprimidos:** ZIP, RAR, 7Z
+- **Datos:** JSON, XML
+
+### **Límites de Tamaño**
+
+- **Máximo por archivo:** 6MB
+- **Validación automática:** Para uploads multipart y Base64
+- **Compresión recomendada:** Para archivos grandes
+
+### **Seguridad**
+
+- **Autenticación:** Azure AD obligatoria
+- **Autorización:** RBAC con roles específicos
+- **Restricciones IP:** Opcional por endpoint
+- **Expiración:** Tokens temporales con duración configurable
+- **Validación:** Tipos MIME y extensiones de archivo
+
+## **Configuración**
+
+### **Variables de Entorno**
 
 ```bash
-curl -X POST http://localhost:3010/generate-sas \
+# Azure Storage
+AZURE_STORAGE_ACCOUNT_NAME=your_storage_account
+AZURE_STORAGE_CONTAINER_NAME=your_container
+
+# Azure AD
+AZURE_CLIENT_ID=your_client_id
+AZURE_CLIENT_SECRET=your_client_secret
+AZURE_TENANT_ID=your_tenant_id
+
+# Configuración de la aplicación
+PORT=3000
+NODE_ENV=development
+MAX_FILE_SIZE_MB=6
+
+# Contenedor público (opcional)
+PUBLIC_CONTAINER_NAME=public
+```
+
+### **Instalación y Ejecución**
+
+```bash
+# Instalar dependencias
+npm install
+
+# Desarrollo
+npm run start:dev
+
+# Producción
+npm run build
+npm run start:prod
+
+# Tests
+npm run test
+npm run test:e2e
+```
+
+## **Ejemplos de Uso**
+
+### **Ejemplo 1: Subir y generar SAS Token**
+
+```bash
+# 1. Subir archivo
+curl -X POST http://localhost:3000/blob/upload \
+  -F "file=@documento.pdf" \
+  -F "containerName=uploads" \
+  -F "blobName=mi-documento.pdf" \
+  -F "directory=documentos/2024"
+
+# 2. Generar SAS Token
+curl -X POST http://localhost:3000/sas/generate-sas-url \
   -H "Content-Type: application/json" \
   -H "x-forwarded-for: 192.168.1.1" \
+  -d '{"url": "https://storage.blob.core.windows.net/uploads/documentos/2024/mi-documento.pdf"}'
+```
+
+### **Ejemplo 2: Exponer archivo públicamente**
+
+```bash
+curl -X POST http://localhost:3000/blob/expose-public \
+  -H "Content-Type: application/json" \
   -d '{
-    "url": "https://mystorageaccount.blob.core.windows.net/uploads/evidencia.pdf",
+    "containerName": "uploads",
+    "blobName": "reporte-confidencial.pdf",
+    "directory": "reportes/2024",
+    "expirationMinutes": 30,
+    "base64": false
   }'
 ```
 
-- Solicitud sin URL (Error 400):
+### **Ejemplo 3: Gestión de archivos**
 
 ```bash
-curl -X POST http://localhost:3010/generate-sas \
+# Mover archivo
+curl -X POST http://localhost:3000/blob/move \
   -H "Content-Type: application/json" \
-  -H "x-forwarded-for: 192.168.1.1" \
-  -d '{}'
+  -d '{
+    "containerName": "uploads",
+    "sourceBlobPath": "temporal/borrador.pdf",
+    "destinationBlobPath": "final/documento-aprobado.pdf"
+  }'
+
+# Listar archivos en directorio
+curl -X POST http://localhost:3000/blob/list/directory \
+  -H "Content-Type: application/json" \
+  -d '{
+    "containerName": "uploads",
+    "directory": "final"
+  }'
 ```
+
+## **Documentación API**
+
+La documentación completa de la API está disponible a través de Swagger UI:
+
+```
+http://localhost:3000/sas/v1/swagger-ui
+```
+
+Esta documentación incluye:
+
+- Especificaciones detalladas de todos los endpoints
+- Esquemas de request y response
+- Ejemplos interactivos
+- Códigos de error y respuestas

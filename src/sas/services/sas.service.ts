@@ -1,9 +1,9 @@
 import { ClientSecretCredential } from '@azure/identity';
 import {
   BlobSASPermissions,
-  ContainerSASPermissions,
   BlobSASSignatureValues,
   BlobServiceClient,
+  ContainerSASPermissions,
   RestError,
   SASProtocol,
   StorageSharedKeyCredential,
@@ -16,6 +16,10 @@ import { getBlobInfoFromUrl } from '@src/common/utils';
 import { ErrorMessages } from '@src/shared/enums/error-messages.enum';
 import { SasPermission } from '@src/shared/enums/sas-permission.enum';
 import { BadRequestException } from '@src/shared/exceptions/bad-request.exception';
+import {
+  SasGenerationParams,
+  SasGenerationResult,
+} from '@src/shared/interfaces/services/sas.interface';
 import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
@@ -76,6 +80,191 @@ export class SasService {
     return { startsOn, expiresOn };
   }
 
+  /**
+   * Extrae el nombre de la cuenta del connection string
+   */
+  private extractAccountNameFromConnectionString(
+    connectionString: string,
+  ): string {
+    try {
+      const accountNameMatch = connectionString.match(/AccountName=([^;]+)/i);
+      if (!accountNameMatch?.[1]) {
+        throw new Error(
+          'No se pudo encontrar AccountName en el connection string',
+        );
+      }
+      return accountNameMatch[1].trim();
+    } catch (error) {
+      console.error('Error extracting account name:', error);
+      throw new BadRequestException(ErrorMessages.CONNECTION_STRING_INVALID);
+    }
+  }
+
+  /**
+   * Crea el cliente de BlobService basado en el connection string o credenciales
+   */
+  private createBlobServiceClient(connectionString?: string): {
+    blobServiceClient: BlobServiceClient;
+    useSharedKey: boolean;
+    accountName: string;
+  } {
+    const configConnectionString = this.configService.get<string>(
+      'azure.connectionString',
+    );
+
+    const accountName = this.configService.get<string>(
+      'azure.storageAccountName',
+    );
+
+    // Priorizar el connectionString pasado como parámetro
+    const effectiveConnectionString =
+      connectionString || configConnectionString;
+
+    if (effectiveConnectionString) {
+      return {
+        blobServiceClient: BlobServiceClient.fromConnectionString(
+          effectiveConnectionString,
+        ),
+        useSharedKey: true,
+        accountName: this.extractAccountNameFromConnectionString(
+          effectiveConnectionString,
+        ),
+      };
+    } else if (accountName) {
+      const credential = this.getAzureCredential();
+      return {
+        blobServiceClient: new BlobServiceClient(
+          `https://${accountName}.blob.core.windows.net/`,
+          credential,
+        ),
+        useSharedKey: false,
+        accountName,
+      };
+    } else {
+      throw new BadRequestException(ErrorMessages.ENV_MISSING);
+    }
+  }
+
+  /**
+   * Construye las opciones SAS y la URL base
+   */
+  private buildSasOptionsAndUrl(
+    params: SasGenerationParams,
+    accountName: string,
+    expiresOn: Date,
+  ): {
+    sasOptions: BlobSASSignatureValues;
+    sasUrl: string;
+    permissionsString: string;
+  } {
+    const { containerName, fileName, permissions, userIp } = params;
+
+    // Construir permisos
+    const permissionsString = permissions ? permissions.join('') : 'r';
+
+    let sasOptions: BlobSASSignatureValues;
+    let sasUrl: string;
+
+    if (fileName) {
+      // SAS para un blob específico
+      const blobPermissions = BlobSASPermissions.parse(permissionsString);
+      sasOptions = {
+        containerName,
+        blobName: fileName,
+        permissions: blobPermissions,
+        expiresOn,
+        protocol: SASProtocol.Https,
+        ipRange: userIp ? { start: userIp, end: userIp } : undefined,
+      };
+      sasUrl = `https://${accountName}.blob.core.windows.net/${containerName}/${fileName}`;
+    } else {
+      // SAS para el contenedor
+      const containerPermissions =
+        ContainerSASPermissions.parse(permissionsString);
+      sasOptions = {
+        containerName,
+        permissions: containerPermissions,
+        expiresOn,
+        protocol: SASProtocol.Https,
+        ipRange: userIp ? { start: userIp, end: userIp } : undefined,
+      };
+      sasUrl = `https://${accountName}.blob.core.windows.net/${containerName}`;
+    }
+
+    return { sasOptions, sasUrl, permissionsString };
+  }
+
+  /**
+   * Construye el resultado final del SAS
+   */
+  private buildSasResult(
+    params: SasGenerationParams,
+    sasToken: string,
+    sasUrl: string,
+    permissionsString: string,
+    expiresOn: Date,
+  ): SasGenerationResult {
+    const result: SasGenerationResult = {
+      sasToken,
+      sasUrl: `${sasUrl}?${sasToken}`,
+      permissions: permissionsString,
+      expiresOn,
+      containerName: params.containerName,
+      requestId: uuidv4(),
+    };
+
+    if (params.fileName) {
+      result.blobName = params.fileName;
+    }
+
+    return result;
+  }
+
+  /**
+   * Método principal para generar SAS tokens (refactorizado)
+   */
+  private async generateSasTokenCore(
+    params: SasGenerationParams,
+    customConnectionString?: string,
+  ): Promise<SasGenerationResult> {
+    // Validar connection string personalizado si se proporciona
+    if (customConnectionString && !customConnectionString.trim()) {
+      throw new BadRequestException(
+        ErrorMessages.PUBLIC_CONNECTION_STRING_MISSING,
+      );
+    }
+
+    // Crear cliente de BlobService
+    const { blobServiceClient, useSharedKey, accountName } =
+      this.createBlobServiceClient(customConnectionString);
+
+    // Calcular fechas
+    const expirationMins = params.expirationMinutes || 30;
+    const { expiresOn } = this.computeValidity(expirationMins);
+
+    // Construir opciones SAS y URL
+    const { sasOptions, sasUrl, permissionsString } =
+      this.buildSasOptionsAndUrl(params, accountName, expiresOn);
+
+    // Generar el token SAS
+    const sasToken = await this.generateSasToken(
+      blobServiceClient,
+      sasOptions,
+      useSharedKey,
+      expirationMins,
+      accountName,
+    );
+
+    // Construir y retornar el resultado
+    return this.buildSasResult(
+      params,
+      sasToken,
+      sasUrl,
+      permissionsString,
+      expiresOn,
+    );
+  }
+
   private async generateSasToken(
     blobServiceClient: BlobServiceClient,
     sasOptions: BlobSASSignatureValues,
@@ -104,7 +293,6 @@ export class SasService {
       }
     } else {
       // --- Ruta User Delegation Key via AAD ---
-
       const { startsOn, expiresOn } =
         this.computeValidityForUserDelegation(expirationMinutes);
 
@@ -225,105 +413,36 @@ export class SasService {
     permissions?: SasPermission[],
     expirationMinutes?: number,
     userIp?: string,
-  ): Promise<{
-    sasToken: string;
-    sasUrl: string;
-    permissions: string;
-    expiresOn: Date;
-    containerName: string;
-    blobName?: string;
-    requestId: string;
-  }> {
-    const accountName = this.configService.get<string>(
-      'azure.storageAccountName',
-    );
-    const connString = this.configService.get<string>('azure.connectionString');
-
-    if (!accountName) {
-      throw new BadRequestException(ErrorMessages.ENV_MISSING);
-    }
-
-    // Inicializar cliente
-    let blobServiceClient: BlobServiceClient;
-    let useSharedKey = false;
-
-    if (connString) {
-      blobServiceClient = BlobServiceClient.fromConnectionString(connString);
-      useSharedKey = true;
-    } else {
-      const credential = this.getAzureCredential();
-      blobServiceClient = new BlobServiceClient(
-        `https://${accountName}.blob.core.windows.net/`,
-        credential,
-      );
-    }
-
-    // Calcular fechas
-    const expirationMins = expirationMinutes || 30;
-    const { expiresOn } = this.computeValidity(expirationMins);
-
-    // Construir permisos
-    const permissionsString = permissions ? permissions.join('') : 'r';
-
-    // Construir la configuración y URL dependiendo del tipo
-    let sasOptions: BlobSASSignatureValues;
-    let sasUrl: string;
-
-    if (fileName) {
-      // SAS para un blob específico
-      const blobPermissions = BlobSASPermissions.parse(permissionsString);
-      sasOptions = {
-        containerName,
-        blobName: fileName,
-        permissions: blobPermissions,
-        expiresOn,
-        protocol: SASProtocol.Https,
-        ipRange: userIp ? { start: userIp, end: userIp } : undefined,
-      };
-      sasUrl = `https://${accountName}.blob.core.windows.net/${containerName}/${fileName}`;
-    } else {
-      // SAS para el contenedor
-      const containerPermissions =
-        ContainerSASPermissions.parse(permissionsString);
-      sasOptions = {
-        containerName,
-        permissions: containerPermissions,
-        expiresOn,
-        protocol: SASProtocol.Https,
-        ipRange: userIp ? { start: userIp, end: userIp } : undefined,
-      };
-      sasUrl = `https://${accountName}.blob.core.windows.net/${containerName}`;
-    }
-
-    const sasToken = await this.generateSasToken(
-      blobServiceClient,
-      sasOptions,
-      useSharedKey,
-      expirationMins,
-      accountName,
-    );
-
-    const result: {
-      sasToken: string;
-      sasUrl: string;
-      permissions: string;
-      expiresOn: Date;
-      containerName: string;
-      blobName?: string;
-      requestId: string;
-    } = {
-      sasToken,
-      sasUrl: `${sasUrl}?${sasToken}`,
-      permissions: permissionsString,
-      expiresOn,
+  ): Promise<SasGenerationResult> {
+    return this.generateSasTokenCore({
       containerName,
-      requestId: uuidv4(),
-    };
+      fileName,
+      permissions,
+      expirationMinutes,
+      userIp,
+    });
+  }
 
-    if (fileName) {
-      result.blobName = fileName;
-    }
-
-    return result;
+  /**
+   * Genera un SAS Token con parámetros específicos usando un connection string personalizado
+   */
+  async generateSasTokenWithCustomConnection(
+    connectionString: string,
+    containerName: string,
+    fileName?: string,
+    permissions?: SasPermission[],
+    expirationMinutes?: number,
+    userIp?: string,
+  ): Promise<SasGenerationResult> {
+    return this.generateSasTokenCore(
+      {
+        containerName,
+        fileName,
+        permissions,
+        expirationMinutes,
+        userIp,
+      },
+      connectionString,
+    );
   }
 }

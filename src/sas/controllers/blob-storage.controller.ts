@@ -17,19 +17,30 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import {
+  ApiCopyBlobOperation,
+  ApiDownloadOperation,
+  ApiExposePublicBlobOperation,
+  ApiListPublicBlobsOperation,
+  ApiMoveBlobOperation,
+  ApiSuccessResponse,
+  ApiUploadOperation,
+} from '@src/shared/decorators/swagger-responses.decorator';
 import { CopyBlobDto } from '@src/shared/dto/copy-blob.dto';
 import { DeleteBlobDto } from '@src/shared/dto/delete-blob.dto';
 import { DownloadBlobBase64Dto } from '@src/shared/dto/download-blob-base64.dto';
 import { DownloadBlobDto } from '@src/shared/dto/download-blob.dto';
-import { ListBlobsInDirectoryDto } from '@src/shared/dto/list-blobs-directory.dto';
+import { ExposePublicBlobDto } from '@src/shared/dto/expose-public-blob.dto';
 import { ListBlobsDto } from '@src/shared/dto/list-blobs.dto';
+import { ListPublicBlobsDto } from '@src/shared/dto/list-public-blobs.dto';
 import { MoveBlobDto } from '@src/shared/dto/move-blob.dto';
 import { UploadBlobBase64Dto } from '@src/shared/dto/upload-blob-base64.dto';
 import { UploadBlobDto } from '@src/shared/dto/upload-blob-dto';
 import { ErrorMessages } from '@src/shared/enums/error-messages.enum';
 import { BadRequestException } from '@src/shared/exceptions/bad-request.exception';
+import { BlobListResponse } from '@src/shared/interfaces/services/blob-storage/list-blobs.interface';
 import { Response } from 'express';
-import { BlobStorageService } from '../services/blob-storage.service';
+import { BlobStorageService } from '../services/blob-storage/blob-storage.service';
 import { FileValidationService } from '../services/file-validation.service';
 
 @ApiTags('Blob Storage')
@@ -99,7 +110,6 @@ export class BlobStorageController {
       'application/vnd.openxmlformats-officedocument.presentationml.presentation',
       'text/plain',
       'text/csv',
-
       // Imágenes
       'image/jpeg',
       'image/jpg',
@@ -108,22 +118,18 @@ export class BlobStorageController {
       'image/bmp',
       'image/webp',
       'image/svg+xml',
-
       // Audio
       'audio/mpeg',
       'audio/wav',
       'audio/mp3',
-
       // Video
       'video/mp4',
       'video/avi',
       'video/quicktime',
-
       // Archivos comprimidos
       'application/zip',
       'application/x-rar-compressed',
       'application/x-7z-compressed',
-
       // JSON/XML
       'application/json',
       'application/xml',
@@ -139,47 +145,11 @@ export class BlobStorageController {
 
   @Post('upload')
   @UseInterceptors(FileInterceptor('file'))
-  @ApiOperation({
-    summary: 'Upload a blob (Multipart)',
-    description: `Upload a file to Azure Blob Storage using multipart/form-data. Máximo ${6}MB por archivo. La extensión del archivo debe coincidir con el nombre del blob.`,
-  })
+  @ApiUploadOperation('multipart', 6)
   @ApiConsumes('multipart/form-data')
   @ApiBody({
-    description: `Blob upload data (Max ${6}MB). La extensión del archivo original debe coincidir con la extensión en blobName.`,
+    description: `Blob upload data (Max 6MB). La extensión del archivo original debe coincidir con la extensión en blobName.`,
     type: UploadBlobDto,
-  })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Blob uploaded successfully',
-    schema: {
-      example: {
-        status: {
-          statusCode: 200,
-          statusDescription: 'Operación completada con éxito.',
-        },
-        data: {
-          blobUrl:
-            'https://account.blob.core.windows.net/container/directory/file.pdf',
-          containerName: 'uploads',
-          blobName: 'file.pdf',
-          fullPath: 'directory/file.pdf',
-          requestId: '123e4567-e89b-12d3-a456-426614174000',
-        },
-      },
-    },
-  })
-  @ApiResponse({
-    status: HttpStatus.BAD_REQUEST,
-    description: 'File too large, invalid extension, or extension mismatch',
-    schema: {
-      example: {
-        status: {
-          statusCode: 400,
-          statusDescription:
-            "La extensión del archivo original '.jpg' no coincide con la extensión del blob '.pdf'.",
-        },
-      },
-    },
   })
   @HttpCode(HttpStatus.OK)
   async uploadBlob(
@@ -225,12 +195,9 @@ export class BlobStorageController {
   }
 
   @Post('upload/base64')
-  @ApiOperation({
-    summary: 'Upload a blob (Base64)',
-    description: `Upload a file to Azure Blob Storage using Base64 encoding. Máximo ${6}MB por archivo. El tipo MIME debe coincidir con la extensión del blob.`,
-  })
+  @ApiUploadOperation('base64', 6)
   @ApiBody({
-    description: `Base64 blob upload data (Max ${6}MB). El mimeType debe coincidir con la extensión en blobName.`,
+    description: `Base64 blob upload data (Max 6MB). El mimeType debe coincidir con la extensión en blobName.`,
     type: UploadBlobBase64Dto,
     examples: {
       pdfExample: {
@@ -250,40 +217,6 @@ export class BlobStorageController {
           blobName: 'imagen.jpg',
           fileBase64: 'fileBase64',
           mimeType: 'image/jpeg',
-        },
-      },
-    },
-  })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Base64 blob uploaded successfully',
-    schema: {
-      example: {
-        status: {
-          statusCode: 200,
-          statusDescription: 'Operación completada con éxito.',
-        },
-        data: {
-          blobUrl:
-            'https://account.blob.core.windows.net/container/directory/file.pdf',
-          containerName: 'uploads',
-          blobName: 'documento.pdf',
-          fullPath: 'directory/documento.pdf',
-          requestId: '123e4567-e89b-12d3-a456-426614174000',
-        },
-      },
-    },
-  })
-  @ApiResponse({
-    status: HttpStatus.BAD_REQUEST,
-    description:
-      'File too large, invalid Base64, unsupported file type, or MIME type mismatch',
-    schema: {
-      example: {
-        status: {
-          statusCode: 400,
-          statusDescription:
-            "La extensión '.pdf' no coincide con el tipo MIME 'image/jpeg'. Extensiones válidas: .jpg, .jpeg",
         },
       },
     },
@@ -337,10 +270,7 @@ export class BlobStorageController {
   }
 
   @Post('download')
-  @ApiOperation({
-    summary: 'Download a blob (Binary)',
-    description: 'Download a file from Azure Blob Storage as binary data',
-  })
+  @ApiDownloadOperation('binary')
   @ApiBody({
     description: 'Download blob data',
     type: DownloadBlobDto,
@@ -397,11 +327,7 @@ export class BlobStorageController {
   }
 
   @Post('download/base64')
-  @ApiOperation({
-    summary: 'Download a blob (Base64)',
-    description:
-      'Download a file from Azure Blob Storage as Base64 encoded string',
-  })
+  @ApiDownloadOperation('base64')
   @ApiBody({
     description: 'Download blob data for Base64 response',
     type: DownloadBlobBase64Dto,
@@ -419,27 +345,6 @@ export class BlobStorageController {
         value: {
           containerName: 'uploads',
           blobName: 'archivo.pdf',
-        },
-      },
-    },
-  })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Blob downloaded successfully as Base64',
-    schema: {
-      example: {
-        status: {
-          statusCode: 200,
-          statusDescription: 'Operación completada con éxito.',
-        },
-        data: {
-          fileBase64: 'fileBase64',
-          contentType: 'application/pdf',
-          containerName: 'uploads',
-          blobName: 'archivo.pdf',
-          fullPath: 'documentos/2024/archivo.pdf',
-          size: 1024,
-          requestId: '123e4567-e89b-12d3-a456-426614174000',
         },
       },
     },
@@ -505,23 +410,17 @@ export class BlobStorageController {
       },
     },
   })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Blob deleted successfully',
-    schema: {
-      example: {
-        status: {
-          statusCode: 200,
-          statusDescription: 'Operación completada con éxito.',
-        },
-        data: {
-          message: 'Blob deleted successfully',
-          containerName: 'uploads',
-          blobName: 'file.pdf',
-          fullPath: 'directory/file.pdf',
-          requestId: '123e4567-e89b-12d3-a456-426614174000',
-        },
-      },
+  @ApiSuccessResponse('Blob deleted successfully', {
+    status: {
+      statusCode: 200,
+      statusDescription: 'Operación completada con éxito.',
+    },
+    data: {
+      message: 'Blob deleted successfully',
+      containerName: 'uploads',
+      blobName: 'file.pdf',
+      fullPath: 'directory/file.pdf',
+      requestId: '123e4567-e89b-12d3-a456-426614174000',
     },
   })
   @HttpCode(HttpStatus.OK)
@@ -556,113 +455,56 @@ export class BlobStorageController {
   @Post('list')
   @ApiOperation({
     summary: 'List blobs',
-    description: 'List all blobs in a container',
+    description:
+      'List all blobs in a container or in a specific directory within a container',
   })
   @ApiBody({
-    description: 'List blobs data',
+    description:
+      'List blobs data. If directory is provided, only blobs in that directory will be listed.',
     type: ListBlobsDto,
     examples: {
-      example: {
+      listAllBlobs: {
         summary: 'List all blobs in container',
         value: {
           containerName: 'uploads',
         },
       },
-    },
-  })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Blobs listed successfully',
-    schema: {
-      example: {
-        status: {
-          statusCode: 200,
-          statusDescription: 'Operación completada con éxito.',
-        },
-        data: {
-          blobs: ['documento1.pdf', 'imagen.jpg', 'folder/archivo.xlsx'],
-          containerName: 'uploads',
-          requestId: '123e4567-e89b-12d3-a456-426614174000',
-        },
-      },
-    },
-  })
-  @HttpCode(HttpStatus.OK)
-  async listBlobsPost(@Body() listBlobsDto: ListBlobsDto): Promise<{
-    status: { statusCode: number; statusDescription: string };
-    data: {
-      blobs: string[];
-      containerName: string;
-      requestId: string;
-    };
-  }> {
-    const result = await this.blobStorageService.listBlobs(
-      listBlobsDto.containerName,
-    );
-
-    return {
-      status: {
-        statusCode: HttpStatus.OK,
-        statusDescription: 'Operación completada con éxito.',
-      },
-      data: result,
-    };
-  }
-
-  @Post('list/directory')
-  @ApiOperation({
-    summary: 'List blobs in directory',
-    description: 'List all blobs in a specific directory within a container',
-  })
-  @ApiBody({
-    description: 'List blobs in directory data',
-    type: ListBlobsInDirectoryDto,
-    examples: {
-      example: {
+      listBlobsInDirectory: {
         summary: 'List blobs in specific directory',
         value: {
           containerName: 'uploads',
           directory: 'documentos/2024',
         },
       },
-    },
-  })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Blobs listed successfully',
-    schema: {
-      example: {
-        status: {
-          statusCode: 200,
-          statusDescription: 'Operación completada con éxito.',
-        },
-        data: {
-          blobs: [
-            'documentos/2024/factura1.pdf',
-            'documentos/2024/reporte.xlsx',
-          ],
+      listBlobsInNestedDirectory: {
+        summary: 'List blobs in nested directory',
+        value: {
           containerName: 'uploads',
-          directory: 'documentos/2024',
-          requestId: '123e4567-e89b-12d3-a456-426614174000',
+          directory: 'projects/2024/reports',
         },
       },
     },
   })
-  @HttpCode(HttpStatus.OK)
-  async listBlobsInDirectoryPost(
-    @Body() listBlobsInDirectoryDto: ListBlobsInDirectoryDto,
-  ): Promise<{
-    status: { statusCode: number; statusDescription: string };
+  @ApiSuccessResponse('Blobs listed successfully', {
+    status: {
+      statusCode: 200,
+      statusDescription: 'Operación completada con éxito.',
+    },
     data: {
-      blobs: string[];
-      containerName: string;
-      directory?: string;
-      requestId: string;
-    };
+      blobs: ['documento1.pdf', 'imagen.jpg', 'folder/archivo.xlsx'],
+      containerName: 'uploads',
+      directory: 'documentos/2024',
+      requestId: '123e4567-e89b-12d3-a456-426614174000',
+    },
+  })
+  @HttpCode(HttpStatus.OK)
+  async listBlobs(@Body() listBlobsDto: ListBlobsDto): Promise<{
+    status: { statusCode: number; statusDescription: string };
+    data: BlobListResponse;
   }> {
-    const result = await this.blobStorageService.listBlobsInDirectory(
-      listBlobsInDirectoryDto.containerName,
-      listBlobsInDirectoryDto.directory,
+    const result = await this.blobStorageService.listBlobs(
+      listBlobsDto.containerName,
+      listBlobsDto.directory,
     );
 
     return {
@@ -675,11 +517,7 @@ export class BlobStorageController {
   }
 
   @Post('move')
-  @ApiOperation({
-    summary: 'Move a blob to a different location',
-    description:
-      'Move a file from one location to another within the same container. This operation copies the file to the new location and then deletes the original. If the destination already exists, it will be overwritten.',
-  })
+  @ApiMoveBlobOperation()
   @ApiBody({
     description: 'Move blob data',
     type: MoveBlobDto,
@@ -706,50 +544,6 @@ export class BlobStorageController {
           containerName: 'uploads',
           sourceBlobPath: 'Archivo_1.pdf',
           destinationBlobPath: 'documentos/2025/Archivo_1.pdf',
-        },
-      },
-    },
-  })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Blob moved successfully',
-    schema: {
-      example: {
-        status: {
-          statusCode: 200,
-          statusDescription: 'Operación completada con éxito.',
-        },
-        data: {
-          message: 'Blob moved successfully',
-          containerName: 'uploads',
-          sourcePath: 'temporal/documento.pdf',
-          destinationPath: 'documentos/2024/documento-final.pdf',
-          requestId: '123e4567-e89b-12d3-a456-426614174000',
-        },
-      },
-    },
-  })
-  @ApiResponse({
-    status: HttpStatus.BAD_REQUEST,
-    description: 'Invalid request - same source and destination paths',
-    schema: {
-      example: {
-        status: {
-          statusCode: 400,
-          statusDescription:
-            'La ruta de origen y destino no pueden ser la misma.',
-        },
-      },
-    },
-  })
-  @ApiResponse({
-    status: HttpStatus.PARTIAL_CONTENT,
-    description: 'Source blob not found',
-    schema: {
-      example: {
-        status: {
-          statusCode: 206,
-          statusDescription: 'El archivo especificado no existe.',
         },
       },
     },
@@ -781,11 +575,7 @@ export class BlobStorageController {
   }
 
   @Post('copy')
-  @ApiOperation({
-    summary: 'Copy a blob to a different location',
-    description:
-      'Copy a file from one location to another within the same container. The original file remains unchanged. If the destination already exists, it will be overwritten.',
-  })
+  @ApiCopyBlobOperation()
   @ApiBody({
     description: 'Copy blob data',
     type: CopyBlobDto,
@@ -816,50 +606,6 @@ export class BlobStorageController {
       },
     },
   })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Blob copied successfully',
-    schema: {
-      example: {
-        status: {
-          statusCode: 200,
-          statusDescription: 'Operación completada con éxito.',
-        },
-        data: {
-          message: 'Blob copied successfully',
-          containerName: 'uploads',
-          sourcePath: 'documentos/importante.pdf',
-          destinationPath: 'backup/documentos/importante-backup.pdf',
-          requestId: '123e4567-e89b-12d3-a456-426614174000',
-        },
-      },
-    },
-  })
-  @ApiResponse({
-    status: HttpStatus.BAD_REQUEST,
-    description: 'Invalid request - same source and destination paths',
-    schema: {
-      example: {
-        status: {
-          statusCode: 400,
-          statusDescription:
-            'La ruta de origen y destino no pueden ser la misma.',
-        },
-      },
-    },
-  })
-  @ApiResponse({
-    status: HttpStatus.PARTIAL_CONTENT,
-    description: 'Source blob not found',
-    schema: {
-      example: {
-        status: {
-          statusCode: 206,
-          statusDescription: 'El archivo especificado no existe.',
-        },
-      },
-    },
-  })
   @HttpCode(HttpStatus.OK)
   async copyBlobPost(@Body() copyBlobDto: CopyBlobDto): Promise<{
     status: { statusCode: number; statusDescription: string };
@@ -875,6 +621,154 @@ export class BlobStorageController {
       copyBlobDto.containerName,
       copyBlobDto.sourceBlobPath,
       copyBlobDto.destinationBlobPath,
+    );
+
+    return {
+      status: {
+        statusCode: HttpStatus.OK,
+        statusDescription: 'Operación completada con éxito.',
+      },
+      data: result,
+    };
+  }
+
+  @Post('expose-public')
+  @ApiExposePublicBlobOperation()
+  @ApiBody({
+    description:
+      'Datos del archivo a exponer públicamente con opción de método',
+    type: ExposePublicBlobDto,
+    examples: {
+      defaultDirectCopy: {
+        summary: 'Exposición por copia directa (por defecto - recomendado)',
+        description:
+          'Método más eficiente que copia directamente entre contenedores sin descargar/subir',
+        value: {
+          containerName: 'contenedor',
+          blobName: 'documento.pdf',
+          directory: 'directorio/2000000000',
+          expirationMinutes: 60,
+          base64: false,
+        },
+      },
+      explicitDirectCopy: {
+        summary: 'Exposición por copia directa (explícito)',
+        description: 'Especifica explícitamente usar copia directa',
+        value: {
+          containerName: 'contenedor',
+          blobName: 'imagen.jpg',
+          directory: 'directorio/2000000000',
+          expirationMinutes: 120,
+          base64: true,
+          useDirectCopy: true,
+        },
+      },
+      downloadUploadMethod: {
+        summary: 'Exposición por descarga/subida (legacy)',
+        description:
+          'Método legacy que descarga y luego sube. Usar solo si hay problemas con copia directa',
+        value: {
+          containerName: 'contenedor',
+          blobName: 'reporte.xlsx',
+          directory: 'directorio/2000000000',
+          expirationMinutes: 30,
+          base64: false,
+          useDirectCopy: false,
+        },
+      },
+      largeFileOptimized: {
+        summary: 'Archivo grande con copia optimizada',
+        description:
+          'Para archivos grandes, la copia directa es significativamente más rápida',
+        value: {
+          containerName: 'contenedor',
+          blobName: 'video-presentation.mp4',
+          directory: 'directorio/2000000000',
+          expirationMinutes: 180,
+          base64: false,
+          useDirectCopy: true,
+        },
+      },
+    },
+  })
+  @HttpCode(HttpStatus.OK)
+  async exposePublicBlob(
+    @Body() exposePublicBlobDto: ExposePublicBlobDto,
+  ): Promise<{
+    status: { statusCode: number; statusDescription: string };
+    data: {
+      sasToken: string;
+      sasUrl: string;
+      permissions: string;
+      expiresOn: Date;
+      fileBase64?: string;
+      contentType: string;
+      containerName: string;
+      blobName: string;
+      fullPath: string;
+      size: number;
+      requestId: string;
+      useDirectCopy: boolean;
+    };
+  }> {
+    const useDirectCopy = exposePublicBlobDto.useDirectCopy ?? true;
+
+    const result = await this.blobStorageService.exposePublicBlob(
+      {
+        privateContainerName: exposePublicBlobDto.containerName,
+        directory: exposePublicBlobDto.directory || '',
+        blobName: exposePublicBlobDto.blobName,
+        expirationMinutes: exposePublicBlobDto.expirationMinutes ?? 60,
+        includeBase64: exposePublicBlobDto.base64 ?? false,
+      },
+      useDirectCopy,
+    );
+
+    return {
+      status: {
+        statusCode: HttpStatus.OK,
+        statusDescription: 'Operación completada con éxito.',
+      },
+      data: {
+        ...result,
+        useDirectCopy,
+      },
+    };
+  }
+
+  @Post('list-public')
+  @ApiListPublicBlobsOperation()
+  @ApiBody({
+    description: 'Parámetros para listar archivos del store público',
+    type: ListPublicBlobsDto,
+    examples: {
+      listAll: {
+        summary: 'Listar todos los archivos públicos',
+        value: {},
+      },
+      listByDirectory: {
+        summary: 'Listar archivos de un directorio específico',
+        value: {
+          directory: 'afiliaciones/2000000005',
+        },
+      },
+      listReports: {
+        summary: 'Listar reportes mensuales',
+        value: {
+          directory: 'reportes/mensuales',
+        },
+      },
+    },
+  })
+  @HttpCode(HttpStatus.OK)
+  async listPublicBlobs(
+    @Body() listPublicBlobsDto: ListPublicBlobsDto,
+  ): Promise<{
+    status: { statusCode: number; statusDescription: string };
+    data: BlobListResponse;
+  }> {
+    const result = await this.blobStorageService.listPublicBlobs(
+      listPublicBlobsDto.directory,
     );
 
     return {

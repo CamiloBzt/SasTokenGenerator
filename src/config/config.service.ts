@@ -28,4 +28,16 @@ export class AppConfigService {
   get azureClientSecret(): string {
     return this.configService.get<string>('azure.clientSecret');
   }
+
+  get azurePublicConnectionString(): string {
+    return this.configService.get<string>('azure.publicConnectionString');
+  }
+
+  get azurePublicContainer(): string {
+    return this.configService.get<string>('azure.publicContainerName');
+  }
+
+  get azurePublicCustomDomain(): string {
+    return this.configService.get<string>('azure.publicCustomDomain');
+  }
 }

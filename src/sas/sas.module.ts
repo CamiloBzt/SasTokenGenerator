@@ -1,13 +1,13 @@
 import { Module } from '@nestjs/common';
 import { BlobStorageController } from './controllers/blob-storage.controller';
 import { SasController } from './controllers/sas.controller';
-import { BlobStorageService } from './services/blob-storage.service';
+import { BlobStorageModule } from './services/blob-storage/blob-storage.module';
 import { FileValidationService } from './services/file-validation.service';
 import { SasService } from './services/sas.service';
 
 @Module({
-  imports: [],
+  imports: [BlobStorageModule],
   controllers: [SasController, BlobStorageController],
-  providers: [SasService, BlobStorageService, FileValidationService],
+  providers: [SasService, FileValidationService],
 })
 export class SasModule {}

@@ -6,4 +6,11 @@ export class ListBlobsDto {
     example: 'uploads',
   })
   containerName: string;
+  @ApiProperty({
+    description:
+      'Directory path (optional). If provided, only blobs within this directory will be listed.',
+    example: 'documentos/2024',
+    required: false,
+  })
+  directory: string;
 }

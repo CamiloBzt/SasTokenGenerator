@@ -9,5 +9,10 @@ export default () => ({
     clientId: process.env['PENDIG-CLIENT-ID-TOKEN'] || '',
     clientSecret: process.env['PENDIG-CLIENT-SECRET-TOKEN'] || '',
     connectionString: process.env['PENDIG-CLAVE-STORAGE-ACCOUNT'] || '',
+    publicContainerName:
+      process.env['PENDIG-CONTAINER-STORAGE-ACCOUNT-PUBLICO'] || '',
+    publicConnectionString:
+      process.env['PENDIG-CLAVE-STORAGE-ACCOUNT-PUBLICO'] || '',
+    publicCustomDomain: process.env['PENDIG-PUBLIC-CUSTOM-DOMAIN'] || '',
   },
 });
