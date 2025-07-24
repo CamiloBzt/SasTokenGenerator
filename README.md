@@ -1,10 +1,4 @@
-<div>
-    <img src="https://www.porvenir.com.co/o/Zona-Publica-Theme/images/ZonaPublica/logo_porvenir.svg" width="250px" alt="Logo Porvenir"/>
-</div>
-
-# pendig-seguridad-ms-sas-generator-nodejs
-
-**Autor:** [Juan Camilo Bazurto](https://github.com/POR18686_porvenir)
+**Autor:** [Juan Camilo Bazurto](https://github.com/CamiloBzt)
 
 [![Node.js](https://img.shields.io/badge/Node.js-22.x-blue)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)](https://www.typescriptlang.org/)
