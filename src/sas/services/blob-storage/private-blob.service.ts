@@ -404,7 +404,9 @@ export class PrivateBlobService {
         : {};
 
     for await (const blob of containerClient.listBlobsFlat(listOptions)) {
-      blobItems.push(blob);
+      if (blob.properties.contentLength && blob.properties.contentLength > 0) {
+        blobItems.push(blob);
+      }
     }
 
     const { enrichedBlobs, totalSize } = processEnrichedBlobs<T>(blobItems);

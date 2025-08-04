@@ -9,14 +9,30 @@ import { SasService } from '@src/sas/services/sas.service';
 
 jest.mock('@src/common/utils', () => ({
   formatFileSize: jest.fn((size: number) => `${size} B`),
-  processEnrichedBlobs: jest.fn((items: any[]) => ({
-    enrichedBlobs: items.map((item) => ({
-      ...item,
-      fileName: item.name,
-      fileExtension: '.pdf',
-    })),
-    totalSize: items.length * 1024,
-  })),
+  processEnrichedBlobs: jest.fn((items: any[]) => {
+    const enrichedBlobs = items.map((item) => ({
+      name: item.name,
+      fileName: item.name.split('/').pop(),
+      directory: item.name.includes('/')
+        ? item.name.split('/').slice(0, -1).join('/')
+        : undefined,
+      fileExtension: item.name.includes('.')
+        ? item.name.substring(item.name.lastIndexOf('.'))
+        : undefined,
+      size: item.properties?.contentLength ?? 0,
+      sizeFormatted: `${item.properties?.contentLength ?? 0} B`,
+      contentType: item.properties?.contentType,
+      lastModified: item.properties?.lastModified ?? new Date(),
+      etag: item.properties?.etag,
+    }));
+
+    const totalSize = items.reduce(
+      (acc, item) => acc + (item.properties?.contentLength ?? 0),
+      0,
+    );
+
+    return { enrichedBlobs, totalSize };
+  }),
 }));
 
 jest.mock('@azure/storage-blob');
@@ -815,7 +831,26 @@ describe('PrivateBlobService - Complete Coverage', () => {
         sasToken: 'sv=...',
       };
 
-      const mockBlobs = [{ name: 'file1.pdf' }, { name: 'file2.txt' }];
+      const mockBlobs = [
+        {
+          name: 'file1.pdf',
+          properties: {
+            contentLength: 1024,
+            contentType: 'application/pdf',
+            lastModified: new Date('2024-01-01'),
+            etag: '"0x8D1234567890"',
+          },
+        },
+        {
+          name: 'file2.txt',
+          properties: {
+            contentLength: 512,
+            contentType: 'text/plain',
+            lastModified: new Date('2024-01-02'),
+            etag: '"0x8D1234567891"',
+          },
+        },
+      ];
 
       const mockContainerClient = {
         listBlobsFlat: jest.fn().mockImplementation(function* () {
@@ -839,7 +874,18 @@ describe('PrivateBlobService - Complete Coverage', () => {
 
     it('should list blobs with directory', async () => {
       const mockSasData = { sasToken: 'sv=...' };
-      const mockBlobs = [{ name: 'docs/file1.pdf' }];
+
+      const mockBlobs = [
+        {
+          name: 'docs/file1.pdf',
+          properties: {
+            contentLength: 2048,
+            contentType: 'application/pdf',
+            lastModified: new Date('2024-01-01'),
+            etag: '"0x8D1234567892"',
+          },
+        },
+      ];
 
       const mockContainerClient = {
         listBlobsFlat: jest.fn().mockImplementation(function* () {

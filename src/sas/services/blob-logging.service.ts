@@ -7,7 +7,6 @@ import {
   BulkLogEntry,
   LogFileConfig,
 } from '@src/shared/interfaces/services/blob-logging/blob-logging.interface';
-import * as XLSX from 'xlsx';
 import { SasService } from './sas.service';
 
 @Injectable()
