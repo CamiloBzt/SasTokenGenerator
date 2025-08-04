@@ -24,7 +24,14 @@ import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
 export class SasService {
-  constructor(private readonly configService: ConfigService) {}
+  constructor(private readonly configService: ConfigService) {
+    const isProduction =
+      this.configService.get<string>('environment') === 'prod';
+
+    if (!isProduction) {
+      process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+    }
+  }
 
   /**
    * Obtiene las credenciales de Azure AD usando las variables de entorno.

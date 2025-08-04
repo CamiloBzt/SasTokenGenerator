@@ -174,10 +174,6 @@ export class BlobStorageController {
       uploadBlobDto.blobName,
     );
 
-    console.log(
-      `Uploading file: ${file.originalname} -> ${uploadBlobDto.blobName}, Size: ${(file.buffer.length / 1024 / 1024).toFixed(2)}MB, Type: ${file.mimetype}`,
-    );
-
     const result = await this.blobStorageService.uploadBlob(
       uploadBlobDto.containerName,
       uploadBlobDto.directory,
@@ -246,10 +242,6 @@ export class BlobStorageController {
     this.fileValidationService.validateBase64Upload(
       uploadBlobBase64Dto.mimeType,
       uploadBlobBase64Dto.blobName,
-    );
-
-    console.log(
-      `Uploading Base64 file: ${uploadBlobBase64Dto.blobName}, Size: ${(fileSizeBytes / 1024 / 1024).toFixed(2)}MB, Type: ${uploadBlobBase64Dto.mimeType}`,
     );
 
     const result = await this.blobStorageService.uploadBlobBase64(
@@ -368,10 +360,6 @@ export class BlobStorageController {
       downloadBlobBase64Dto.containerName,
       downloadBlobBase64Dto.directory,
       downloadBlobBase64Dto.blobName,
-    );
-
-    console.log(
-      `Downloaded Base64 file: ${result.blobName}, Size: ${(result.size / 1024 / 1024).toFixed(2)}MB, Type: ${result.contentType}`,
     );
 
     return {

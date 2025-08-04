@@ -33,7 +33,10 @@ const config: Config = {
     '/node_modules/',
     '.*\\.module\\.ts$',
     'jest.config.ts',
+    '\\.interface\\.ts$',
+    '.eslintrc.js',
   ],
+  testPathIgnorePatterns: ['\\.interface\\.ts$'],
 };
 
 export default config;

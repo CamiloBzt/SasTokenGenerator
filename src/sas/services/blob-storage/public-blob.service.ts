@@ -245,8 +245,6 @@ export class PublicBlobService {
       },
     );
 
-    console.log('Successfully uploaded blob to public store');
-
     const blobInfo: BlobContentInfo = {
       contentType: privateDownloadResult.contentType,
       size: privateDownloadResult.data.length,
@@ -301,8 +299,6 @@ export class PublicBlobService {
         `Error al copiar blob al store público. Copy status: ${copyOperation.copyStatus}`,
       );
     }
-
-    console.log('Successfully copied blob to public store via direct copy');
 
     // Configurar metadatos en el blob de destino
     await destinationBlockBlobClient.setMetadata({
@@ -376,9 +372,6 @@ export class PublicBlobService {
         base64Data,
       );
 
-      console.log(
-        `Public blob exposed successfully via ${useDirectCopy ? 'direct copy' : 'download/upload'}`,
-      );
       return result;
     } catch (error: any) {
       this.handleExposePublicError(error);

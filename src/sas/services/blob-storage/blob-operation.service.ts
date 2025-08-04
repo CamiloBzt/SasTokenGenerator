@@ -213,11 +213,6 @@ export class BlobOperationService {
         await this.deleteSourceBlob(sourceBlockBlobClient, sourceBlobPath);
       }
 
-      const actionPastTense = operation === 'move' ? 'moved' : 'copied';
-      console.log(
-        `Successfully ${actionPastTense} blob from ${sourceBlobPath} to ${destinationBlobPath}`,
-      );
-
       const successMessage =
         operation === 'move'
           ? 'Blob moved successfully'

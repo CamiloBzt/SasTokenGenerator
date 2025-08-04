@@ -7,8 +7,8 @@ import { SasPermission } from '@src/shared/enums/sas-permission.enum';
 import { BadRequestException } from '@src/shared/exceptions/bad-request.exception';
 import { BusinessErrorException } from '@src/shared/exceptions/business-error.exception';
 import {
-    BlobInfo,
-    BlobListResponse,
+  BlobInfo,
+  BlobListResponse,
 } from '@src/shared/interfaces/services/blob-storage/list-blobs.interface';
 import { v4 as uuidv4 } from 'uuid';
 import { SasService } from '../sas.service';
@@ -83,8 +83,6 @@ export class PrivateBlobService {
           blobContentType: file.mimetype,
         },
       });
-
-      console.log('Upload completed successfully');
 
       const accountName = this.configService.get<string>(
         'azure.storageAccountName',
@@ -162,8 +160,6 @@ export class PrivateBlobService {
         },
       });
 
-      console.log('Base64 upload completed successfully');
-
       const accountName = this.configService.get<string>(
         'azure.storageAccountName',
       );
@@ -239,8 +235,6 @@ export class PrivateBlobService {
       // Obtener metadata del blob
       const properties = await blockBlobClient.getProperties();
 
-      console.log('Download completed successfully');
-
       return {
         data: downloadResponse,
         contentType: properties.contentType || 'application/octet-stream',
@@ -305,10 +299,6 @@ export class PrivateBlobService {
       // Convertir Buffer a Base64
       const fileBase64 = downloadResponse.toString('base64');
 
-      console.log(
-        `Base64 download completed successfully: ${downloadResponse.length} bytes -> ${fileBase64.length} chars`,
-      );
-
       return {
         fileBase64,
         contentType: properties.contentType || 'application/octet-stream',
@@ -366,14 +356,10 @@ export class PrivateBlobService {
       // deleteIfExists() también devuelve false si el blob no existe, sin lanzar error
       const deletionResponse = await blockBlobClient.deleteIfExists();
 
-      console.log('Delete attempt completed');
-
       // Si no se eliminó, significa que no existía
       if (!deletionResponse.succeeded) {
         throw new BusinessErrorException(ErrorMessages.BLOB_NOT_FOUND);
       }
-
-      console.log('Delete completed successfully');
 
       return {
         containerName,
