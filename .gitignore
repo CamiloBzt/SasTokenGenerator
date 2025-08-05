@@ -214,3 +214,5 @@ package-lock.json
 
 # Ignore yarn integrity file
 test-report.xml
+
+*.py

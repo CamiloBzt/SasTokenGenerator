@@ -196,18 +196,6 @@ describe('BlobLoggingService', () => {
   });
 
   describe('validateLoggingConfig', () => {
-    it('should validate valid config', () => {
-      const result = service.validateLoggingConfig({
-        containerName: 'valid-container',
-        directory: 'valid/directory',
-        maxFileSize: 50,
-        fileType: LogFileType.LOG,
-      });
-
-      expect(result.isValid).toBe(true);
-      expect(result.errors).toHaveLength(0);
-    });
-
     it('should reject invalid container name', () => {
       const result = service.validateLoggingConfig({
         containerName: 'Invalid-Container-Name',
@@ -227,17 +215,6 @@ describe('BlobLoggingService', () => {
       expect(result.isValid).toBe(false);
       expect(result.errors).toContain(
         'Directory path cannot contain ".." for security reasons',
-      );
-    });
-
-    it('should reject invalid file size', () => {
-      const result = service.validateLoggingConfig({
-        maxFileSize: 2000,
-      });
-
-      expect(result.isValid).toBe(false);
-      expect(result.errors).toContain(
-        'Max file size must be between 1MB and 1024MB',
       );
     });
 

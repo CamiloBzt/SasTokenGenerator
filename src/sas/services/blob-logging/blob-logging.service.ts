@@ -140,6 +140,22 @@ export class BlobLoggingService {
     ];
   }
 
+  private getMaxFileSizeLimit(config: LogFileConfig): number {
+    const fileType = this.logStrategyFactory['determineFileType']('', config);
+
+    switch (fileType) {
+      case LogFileType.LOG:
+      case LogFileType.CSV:
+        return 50000; // 50GB para logs y CSV (Append Blobs)
+
+      case LogFileType.XLSX:
+        return 2048; // 2GB para Excel (Block Blobs)
+
+      default:
+        return 1024; // 1GB por defecto
+    }
+  }
+
   /**
    * Valida la configuración de logging
    */
@@ -163,11 +179,18 @@ export class BlobLoggingService {
     }
 
     // Validar max file size
-    if (
-      config.maxFileSize &&
-      (config.maxFileSize <= 0 || config.maxFileSize > 1024)
-    ) {
-      errors.push('Max file size must be between 1MB and 1024MB');
+    if (config.maxFileSize) {
+      const maxAllowed = this.getMaxFileSizeLimit(config);
+
+      if (config.maxFileSize <= 0 || config.maxFileSize > maxAllowed) {
+        const fileType = this.logStrategyFactory['determineFileType'](
+          '',
+          config,
+        );
+        errors.push(
+          `Max file size for ${fileType} files must be between 1MB and ${maxAllowed}MB`,
+        );
+      }
     }
 
     // Validar file type
