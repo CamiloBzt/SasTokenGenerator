@@ -1,6 +1,6 @@
 import { BlockBlobClient } from '@azure/storage-blob';
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
-import { LogFileType } from '@src/shared/dto/blob-logging.dto';
+import { LogFileType, LogLevel } from '@src/shared/dto/blob-logging.dto';
 import { LogEntry } from '@src/shared/enums/blob-logging.enum';
 import { SasPermission } from '@src/shared/enums/sas-permission.enum';
 import {
@@ -12,7 +12,7 @@ import * as XLSX from 'xlsx';
 import { SasService } from '../../sas.service';
 
 /**
- * Estrategia especializada para archivos Excel (.xlsx)
+ * Estrategia especializada para archivos Excel (.xlsx) con soporte dinámico
  */
 @Injectable()
 export class XlsxLogStrategy implements LogStrategy {
@@ -20,8 +20,10 @@ export class XlsxLogStrategy implements LogStrategy {
   private fileName: string;
   private config: LogFileConfig;
   private initialized = false;
-  private contentBuffer: BulkLogEntry[] = []; // Buffer en memoria para acumular entradas
-  private readonly EXCEL_HEADERS = [
+  private contentBuffer: BulkLogEntry[] = [];
+  private dynamicHeaderConfigured = false;
+
+  private readonly DEFAULT_EXCEL_HEADERS = [
     'Timestamp',
     'Level',
     'Request ID',
@@ -30,6 +32,7 @@ export class XlsxLogStrategy implements LogStrategy {
     'Message',
     'Metadata',
   ];
+  private cachedDynamicHeaders: string[] | null = null;
 
   constructor(private readonly sasService: SasService) {}
 
@@ -40,9 +43,9 @@ export class XlsxLogStrategy implements LogStrategy {
   async initialize(fileName: string, config: LogFileConfig): Promise<void> {
     this.fileName = this.generateLogFileName(fileName, config);
     this.config = config;
+
     this.blockBlobClient = await this.createBlockBlobClient();
 
-    // Cargar contenido existente al buffer
     await this.loadExistingContent();
 
     this.initialized = true;
@@ -55,41 +58,46 @@ export class XlsxLogStrategy implements LogStrategy {
       throw new Error(`Invalid log entry for ${this.getFileType()} format`);
     }
 
-    // Verificar rotación antes de escribir
+    if (this.config.dynamicColumns && !this.dynamicHeaderConfigured) {
+      this.setupDynamicMode(entry);
+    }
+
     if (await this.needsRotation()) {
       await this.handleXlsxRotation();
     }
 
-    // Agregar al buffer en memoria (convertir LogEntry a BulkLogEntry)
     const bulkEntry: BulkLogEntry = {
       ...entry,
-      timestamp: new Date(), // Agregar timestamp actual
+      timestamp: new Date(),
     };
     this.contentBuffer.push(bulkEntry);
 
-    // Escribir inmediatamente para entries individuales
     await this.flushBuffer();
   }
 
   async appendBulkLogs(entries: BulkLogEntry[]): Promise<void> {
     this.ensureInitialized();
 
-    // Validar todas las entradas
     for (const entry of entries) {
       if (!this.validateEntry(entry)) {
         throw new Error(`Invalid log entry for ${this.getFileType()} format`);
       }
     }
 
-    // Verificar rotación antes de escribir
+    if (
+      this.config.dynamicColumns &&
+      !this.dynamicHeaderConfigured &&
+      entries.length > 0
+    ) {
+      this.setupDynamicMode(entries[0]);
+    }
+
     if (await this.needsRotation()) {
       await this.handleXlsxRotation();
     }
 
-    // Agregar todas las entradas al buffer
     this.contentBuffer.push(...entries);
 
-    // Escribir todo el contenido de una vez (más eficiente para bulk)
     await this.flushBuffer();
   }
 
@@ -108,6 +116,7 @@ export class XlsxLogStrategy implements LogStrategy {
         `Excel log file exists. Size: ${stats.sizeMB?.toFixed(2)}MB. ` +
         `Entries: ${this.contentBuffer.length}. ` +
         `Last modified: ${stats.lastModified?.toISOString()}. ` +
+        `Mode: ${this.config.dynamicColumns ? 'Dynamic' : 'Traditional'}. ` +
         `Use Excel application or download to view formatted content.`
       );
     } catch (error: any) {
@@ -156,6 +165,24 @@ export class XlsxLogStrategy implements LogStrategy {
     }
   }
 
+  private setupDynamicMode(sampleEntry: LogEntry): void {
+    if (sampleEntry.metadata) {
+      const metadataKeys = Object.keys(sampleEntry.metadata);
+      this.cachedDynamicHeaders = metadataKeys.map((key) =>
+        this.capitalizeHeader(key),
+      );
+
+      this.dynamicHeaderConfigured = true;
+    }
+  }
+
+  private capitalizeHeader(key: string): string {
+    return key
+      .split('_')
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  }
+
   /**
    * Crea el cliente de Block Blob para Azure Storage
    */
@@ -171,7 +198,7 @@ export class XlsxLogStrategy implements LogStrategy {
         containerName,
         fullPath,
         [SasPermission.READ, SasPermission.WRITE, SasPermission.CREATE],
-        60, // 60 minutos de expiración
+        60,
       );
 
       return new BlockBlobClient(sasData.sasUrl);
@@ -196,14 +223,12 @@ export class XlsxLogStrategy implements LogStrategy {
 
       const downloadResponse = await this.blockBlobClient.downloadToBuffer();
 
-      // Parsear el archivo Excel existente
       const workbook = XLSX.read(downloadResponse, {
         type: 'buffer',
         cellDates: true,
         cellStyles: false,
       });
 
-      // Obtener la primera hoja (assumimos que los logs están en la primera hoja)
       const firstSheetName = workbook.SheetNames[0];
       if (!firstSheetName) {
         this.contentBuffer = [];
@@ -211,25 +236,67 @@ export class XlsxLogStrategy implements LogStrategy {
       }
 
       const worksheet = workbook.Sheets[firstSheetName];
+
+      const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+      const firstRowCells: string[] = [];
+
+      for (let col = range.s.c; col <= range.e.c; col++) {
+        const cellAddress = XLSX.utils.encode_cell({ r: 0, c: col });
+        const cell = worksheet[cellAddress];
+        if (cell && cell.v) {
+          firstRowCells.push(String(cell.v));
+        }
+      }
+
+      const hasTraditionalHeaders = firstRowCells.some((header) =>
+        this.DEFAULT_EXCEL_HEADERS.includes(header),
+      );
+
+      let headersToUse: string[];
+      if (!hasTraditionalHeaders && firstRowCells.length > 0) {
+        headersToUse = firstRowCells;
+        this.cachedDynamicHeaders = firstRowCells;
+      } else {
+        headersToUse = this.DEFAULT_EXCEL_HEADERS;
+      }
+
       const jsonData = XLSX.utils.sheet_to_json(worksheet, {
-        header: this.EXCEL_HEADERS,
-        range: 1, // Saltar header row
+        header: headersToUse,
+        range: 1,
       });
 
-      // Convertir los datos de Excel de vuelta a BulkLogEntry format
       this.contentBuffer = jsonData
-        .map((row: any) => ({
-          level: row['Level'] || 'INFO',
-          message: row['Message'] || '',
-          metadata: row['Metadata']
-            ? this.safeParseJSON(row['Metadata'])
-            : undefined,
-          userId: row['User ID'] || undefined,
-          sessionId: row['Session ID'] || undefined,
-          requestId: row['Request ID'] || undefined,
-          timestamp: row['Timestamp'] ? new Date(row['Timestamp']) : undefined,
-        }))
-        .filter((entry) => entry.message); // Filtrar entradas vacías
+        .map((row: any): BulkLogEntry => {
+          if (this.cachedDynamicHeaders) {
+            const metadata: Record<string, any> = {};
+            this.cachedDynamicHeaders.forEach((header) => {
+              const originalKey = header.toLowerCase().replace(/ /g, '_');
+              metadata[originalKey] = row[header];
+            });
+
+            return {
+              level: LogLevel.INFO,
+              message: 'Data entry',
+              metadata,
+              timestamp: new Date(),
+            };
+          } else {
+            return {
+              level: this.parseLogLevel(row['Level']) || LogLevel.INFO,
+              message: row['Message'] || '',
+              metadata: row['Metadata']
+                ? this.safeParseJSON(row['Metadata'])
+                : undefined,
+              userId: row['User ID'] || undefined,
+              sessionId: row['Session ID'] || undefined,
+              requestId: row['Request ID'] || undefined,
+              timestamp: row['Timestamp']
+                ? new Date(row['Timestamp'])
+                : new Date(),
+            };
+          }
+        })
+        .filter((entry) => entry.message);
     } catch (error: any) {
       console.warn(
         'Could not load existing Excel content, starting fresh:',
@@ -248,41 +315,48 @@ export class XlsxLogStrategy implements LogStrategy {
     }
 
     try {
-      // Crear workbook nuevo
       const workbook = XLSX.utils.book_new();
 
-      // Convertir entradas del buffer a formato para Excel
-      const excelData = this.contentBuffer.map((entry) => ({
-        Timestamp: entry.timestamp
-          ? entry.timestamp.toISOString()
-          : new Date().toISOString(),
-        Level: entry.level,
-        'Request ID': entry.requestId || '',
-        'User ID': entry.userId || '',
-        'Session ID': entry.sessionId || '',
-        Message: entry.message,
-        Metadata: entry.metadata ? JSON.stringify(entry.metadata) : '',
-      }));
+      let excelData: any[];
+      let headersToUse: string[];
 
-      // Crear worksheet con los datos
+      if (this.config.dynamicColumns && this.cachedDynamicHeaders) {
+        headersToUse = this.cachedDynamicHeaders;
+        excelData = this.contentBuffer.map((entry) => {
+          const rowData: Record<string, any> = {};
+
+          if (entry.metadata) {
+            Object.keys(entry.metadata).forEach((key) => {
+              const headerKey = this.capitalizeHeader(key);
+              rowData[headerKey] = entry.metadata![key];
+            });
+          }
+
+          return rowData;
+        });
+      } else {
+        headersToUse = this.DEFAULT_EXCEL_HEADERS;
+        excelData = this.contentBuffer.map((entry) => ({
+          Timestamp: entry.timestamp
+            ? entry.timestamp.toISOString()
+            : new Date().toISOString(),
+          Level: entry.level,
+          'Request ID': entry.requestId || '',
+          'User ID': entry.userId || '',
+          'Session ID': entry.sessionId || '',
+          Message: entry.message,
+          Metadata: entry.metadata ? JSON.stringify(entry.metadata) : '',
+        }));
+      }
+
       const worksheet = XLSX.utils.json_to_sheet(excelData, {
-        header: this.EXCEL_HEADERS,
+        header: headersToUse,
       });
 
-      // Configurar ancho de columnas para mejor visualización
-      const columnWidths = [
-        { wch: 25 }, // Timestamp
-        { wch: 8 }, // Level
-        { wch: 15 }, // Request ID
-        { wch: 12 }, // User ID
-        { wch: 15 }, // Session ID
-        { wch: 50 }, // Message
-        { wch: 30 }, // Metadata
-      ];
+      const columnWidths = this.generateColumnWidths(headersToUse);
       worksheet['!cols'] = columnWidths;
 
-      // Aplicar formato a headers
-      const headerRange = XLSX.utils.decode_range(worksheet['!ref'] || 'A1:G1');
+      const headerRange = XLSX.utils.decode_range(worksheet['!ref'] || 'A1:A1');
       for (let col = headerRange.s.c; col <= headerRange.e.c; col++) {
         const cellAddress = XLSX.utils.encode_cell({ r: 0, c: col });
         if (!worksheet[cellAddress]) continue;
@@ -294,17 +368,14 @@ export class XlsxLogStrategy implements LogStrategy {
         };
       }
 
-      // Agregar worksheet al workbook
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Logs');
 
-      // Convertir a buffer
       const excelBuffer = XLSX.write(workbook, {
         type: 'buffer',
         bookType: 'xlsx',
         compression: true,
       }) as Buffer;
 
-      // Subir a Azure Storage
       await this.blockBlobClient.upload(excelBuffer, excelBuffer.length, {
         blobHTTPHeaders: {
           blobContentType:
@@ -318,6 +389,7 @@ export class XlsxLogStrategy implements LogStrategy {
           serviceVersion: '2.0',
           entriesCount: this.contentBuffer.length.toString(),
           isExcelFile: 'true',
+          mode: this.config.dynamicColumns ? 'dynamic' : 'traditional',
         },
       });
     } catch (error: any) {
@@ -326,6 +398,33 @@ export class XlsxLogStrategy implements LogStrategy {
         `Failed to write Excel content: ${error.message}`,
       );
     }
+  }
+
+  private generateColumnWidths(headers: string[]): Array<{ wch: number }> {
+    return headers.map((header) => {
+      const baseWidth = Math.max(header.length + 5, 12);
+
+      if (
+        header.toLowerCase().includes('fecha') ||
+        header.toLowerCase().includes('timestamp')
+      ) {
+        return { wch: 25 };
+      }
+      if (
+        header.toLowerCase().includes('descripcion') ||
+        header.toLowerCase().includes('detalle')
+      ) {
+        return { wch: 40 };
+      }
+      if (
+        header.toLowerCase().includes('observacion') ||
+        header.toLowerCase().includes('comentario')
+      ) {
+        return { wch: 35 };
+      }
+
+      return { wch: baseWidth };
+    });
   }
 
   /**
@@ -351,12 +450,9 @@ export class XlsxLogStrategy implements LogStrategy {
     const [baseName] = this.fileName.split('.');
     const rotatedFileName = `${baseName}-rotated-${timestamp}.xlsx`;
 
-    console.log(
-      `Excel log file rotated from ${this.fileName} to ${rotatedFileName}`,
-    );
-
-    // Limpiar buffer y crear nuevo cliente
     this.contentBuffer = [];
+    this.dynamicHeaderConfigured = false;
+    this.cachedDynamicHeaders = null;
     this.fileName = rotatedFileName;
     this.blockBlobClient = await this.createBlockBlobClient();
   }
@@ -373,9 +469,8 @@ export class XlsxLogStrategy implements LogStrategy {
 
     let fileName = cleanName;
 
-    // Agregar fecha si rotación diaria está habilitada
     if (config.rotateDaily !== false) {
-      const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+      const dateStr = now.toISOString().split('T')[0];
       fileName = `${cleanName}-${dateStr}`;
     }
 
@@ -401,7 +496,7 @@ export class XlsxLogStrategy implements LogStrategy {
   }
 
   /**
-   * Parsea JSON de forma segura, retornando undefined si falla
+   * Parsea JSON de forma segura
    */
   private safeParseJSON(jsonString: string): any {
     try {
@@ -412,7 +507,19 @@ export class XlsxLogStrategy implements LogStrategy {
   }
 
   /**
-   * Limpia recursos si es necesario (para cleanup explícito)
+   * 🔧 Parsea string a LogLevel enum
+   */
+  private parseLogLevel(levelString: string): LogLevel | undefined {
+    if (!levelString) return undefined;
+
+    const upperLevel = levelString.toUpperCase();
+    return Object.values(LogLevel).includes(upperLevel as LogLevel)
+      ? (upperLevel as LogLevel)
+      : LogLevel.INFO;
+  }
+
+  /**
+   * Limpia recursos si es necesario
    */
   async cleanup(): Promise<void> {
     if (this.contentBuffer.length > 0) {

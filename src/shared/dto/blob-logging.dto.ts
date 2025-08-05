@@ -89,6 +89,14 @@ export class LogFileConfigDto {
     default: LogFileType.LOG,
   })
   fileType?: LogFileType;
+
+  @ApiPropertyOptional({
+    description:
+      'Usar SOLO columnas dinámicas basadas en metadata (ignora campos del sistema como timestamp, level, etc. - solo para CSV/XLSX)',
+    example: true,
+    default: false,
+  })
+  dynamicColumns?: boolean;
 }
 
 export class AppendLogDto {

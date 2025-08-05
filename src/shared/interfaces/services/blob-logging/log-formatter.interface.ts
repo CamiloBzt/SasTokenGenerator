@@ -17,8 +17,10 @@ export interface LogFormatter {
 
   /**
    * Genera el header del archivo si es necesario (ej: CSV headers)
+   * @param isDynamic - Si debe usar columnas dinámicas basadas en metadata
+   * @param sampleEntry - Entrada de muestra para extraer metadata keys (solo si isDynamic=true)
    */
-  formatHeader?(): string;
+  formatHeader?(isDynamic?: boolean, sampleEntry?: LogEntry): string;
 
   /**
    * Indica si este formato soporta operaciones de append
@@ -29,4 +31,14 @@ export interface LogFormatter {
    * Valida que la entrada sea compatible con el formato
    */
   validateEntry(entry: LogEntry): boolean;
+
+  /**
+   * Resetea el estado interno del formatter (útil para rotación de archivos)
+   */
+  resetDynamicMode?(): void;
+
+  /**
+   * Obtiene los headers actuales que está usando el formatter
+   */
+  getCurrentHeaders?(): string[];
 }

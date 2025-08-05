@@ -10,13 +10,14 @@ import { LogStrategy } from '@src/shared/interfaces/services/blob-logging/log-st
 import { LogWriter } from '@src/shared/interfaces/services/blob-logging/log-writer.interface';
 
 /**
- * Estrategia base que combina formatter y writer
+ * Estrategia base que combina formatter y writer con soporte para columnas dinámicas
  */
 @Injectable()
 export abstract class BaseLogStrategy implements LogStrategy {
   protected fileName: string;
   protected config: LogFileConfig;
   protected initialized = false;
+  private dynamicHeaderConfigured = false;
 
   constructor(
     protected readonly formatter: LogFormatter,
@@ -31,8 +32,11 @@ export abstract class BaseLogStrategy implements LogStrategy {
 
     await this.writer.initialize(this.fileName, config);
 
-    // Agregar header si es necesario y el archivo es nuevo
-    if (this.formatter.formatHeader && (await this.isNewFile())) {
+    if (
+      !config.dynamicColumns &&
+      this.formatter.formatHeader &&
+      (await this.isNewFile())
+    ) {
       const header = this.formatter.formatHeader();
       await this.writer.writeEntry(header);
     }
@@ -47,7 +51,10 @@ export abstract class BaseLogStrategy implements LogStrategy {
       throw new Error(`Invalid log entry for ${this.getFileType()} format`);
     }
 
-    // Verificar rotación antes de escribir
+    if (this.config.dynamicColumns && !this.dynamicHeaderConfigured) {
+      await this.setupDynamicMode(entry);
+    }
+
     if (await this.writer.needsRotation()) {
       await this.handleRotation();
     }
@@ -59,14 +66,20 @@ export abstract class BaseLogStrategy implements LogStrategy {
   async appendBulkLogs(entries: BulkLogEntry[]): Promise<void> {
     this.ensureInitialized();
 
-    // Validar todas las entradas
     for (const entry of entries) {
       if (!this.formatter.validateEntry(entry)) {
         throw new Error(`Invalid log entry for ${this.getFileType()} format`);
       }
     }
 
-    // Verificar rotación antes de escribir
+    if (
+      this.config.dynamicColumns &&
+      !this.dynamicHeaderConfigured &&
+      entries.length > 0
+    ) {
+      await this.setupDynamicMode(entries[0]);
+    }
+
     if (await this.writer.needsRotation()) {
       await this.handleRotation();
     }
@@ -97,6 +110,18 @@ export abstract class BaseLogStrategy implements LogStrategy {
     };
   }
 
+  private async setupDynamicMode(sampleEntry: LogEntry): Promise<void> {
+    if (this.formatter.formatHeader && sampleEntry.metadata) {
+      const dynamicHeader = this.formatter.formatHeader(true, sampleEntry);
+
+      if (dynamicHeader && (await this.isNewFile())) {
+        await this.writer.writeEntry(dynamicHeader);
+      }
+
+      this.dynamicHeaderConfigured = true;
+    }
+  }
+
   protected ensureInitialized(): void {
     if (!this.initialized) {
       throw new Error('Strategy not initialized. Call initialize() first.');
@@ -110,12 +135,18 @@ export abstract class BaseLogStrategy implements LogStrategy {
 
   protected async handleRotation(): Promise<void> {
     const newFileName = await this.writer.rotate();
-    console.log(`Log file rotated from ${this.fileName} to ${newFileName}`);
 
-    // Agregar header al nuevo archivo si es necesario
+    this.dynamicHeaderConfigured = false;
+
+    if (this.config.dynamicColumns && this.formatter.resetDynamicMode) {
+      this.formatter.resetDynamicMode();
+    }
+
     if (this.formatter.formatHeader) {
-      const header = this.formatter.formatHeader();
-      await this.writer.writeEntry(header);
+      if (!this.config.dynamicColumns) {
+        const header = this.formatter.formatHeader();
+        await this.writer.writeEntry(header);
+      }
     }
   }
 
@@ -128,13 +159,11 @@ export abstract class BaseLogStrategy implements LogStrategy {
 
     let fileName = cleanName;
 
-    // Agregar fecha si rotación diaria está habilitada
     if (config.rotateDaily !== false) {
-      const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+      const dateStr = now.toISOString().split('T')[0];
       fileName = `${cleanName}-${dateStr}`;
     }
 
-    // Agregar extensión correcta
     const extension = this.getFileExtension();
     fileName += extension;
 

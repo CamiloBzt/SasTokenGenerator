@@ -10,5 +10,6 @@ export interface LogFileConfig {
   directory?: string;
   maxFileSize?: number; // MB
   rotateDaily?: boolean;
+  dynamicColumns?: boolean;
   fileType?: LogFileType;
 }

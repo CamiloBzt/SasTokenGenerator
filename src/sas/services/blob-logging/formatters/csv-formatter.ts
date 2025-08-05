@@ -4,11 +4,11 @@ import { BulkLogEntry } from '@src/shared/interfaces/services/blob-logging/blob-
 import { LogFormatter } from '@src/shared/interfaces/services/blob-logging/log-formatter.interface';
 
 /**
- * Formatter para archivos CSV (.csv)
+ * Formatter para archivos CSV (.csv) con soporte para columnas dinámicas
  */
 @Injectable()
 export class CsvLogFormatter implements LogFormatter {
-  private readonly CSV_HEADERS = [
+  private readonly DEFAULT_CSV_HEADERS = [
     'timestamp',
     'level',
     'requestId',
@@ -18,14 +18,39 @@ export class CsvLogFormatter implements LogFormatter {
     'metadata',
   ];
 
-  formatHeader(): string {
-    return this.CSV_HEADERS.join(',') + '\n';
+  private cachedDynamicHeaders: string[] | null = null;
+  private isDynamicMode = false;
+
+  formatHeader(isDynamic?: boolean, sampleEntry?: LogEntry): string {
+    this.isDynamicMode = isDynamic || false;
+
+    if (this.isDynamicMode && sampleEntry?.metadata) {
+      const metadataKeys = Object.keys(sampleEntry.metadata);
+      this.cachedDynamicHeaders = [...metadataKeys];
+
+      const headerLine = this.cachedDynamicHeaders.join(',') + '\n';
+
+      return headerLine;
+    }
+
+    return this.DEFAULT_CSV_HEADERS.join(',') + '\n';
   }
 
   formatEntry(entry: LogEntry, timestamp?: Date): string {
     const logTimestamp = timestamp
       ? timestamp.toISOString()
       : new Date().toISOString();
+
+    if (this.isDynamicMode && this.cachedDynamicHeaders && entry.metadata) {
+      const metadataValues = this.cachedDynamicHeaders.map((key) => {
+        const value = entry.metadata?.[key];
+        return value !== undefined ? this.escapeCsvField(String(value)) : '';
+      });
+
+      const dynamicLine = metadataValues.join(',') + '\n';
+
+      return dynamicLine;
+    }
 
     const fields = [
       logTimestamp,
@@ -54,17 +79,24 @@ export class CsvLogFormatter implements LogFormatter {
     return !!(entry.level && entry.message);
   }
 
+  resetDynamicMode(): void {
+    this.cachedDynamicHeaders = null;
+    this.isDynamicMode = false;
+  }
+
+  getCurrentHeaders(): string[] {
+    return this.cachedDynamicHeaders || this.DEFAULT_CSV_HEADERS;
+  }
+
   private escapeCsvField(field: string): string {
     if (!field) return '';
 
-    // Si el campo contiene comas, comillas dobles o saltos de línea, escaparlo
     if (
       field.includes(',') ||
       field.includes('"') ||
       field.includes('\n') ||
       field.includes('\r')
     ) {
-      // Escapar comillas dobles duplicándolas y envolver en comillas
       return `"${field.replace(/"/g, '""')}"`;
     }
 

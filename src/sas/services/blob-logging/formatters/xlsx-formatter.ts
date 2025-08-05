@@ -5,11 +5,11 @@ import { BulkLogEntry } from '@src/shared/interfaces/services/blob-logging/blob-
 import { LogFormatter } from '@src/shared/interfaces/services/blob-logging/log-formatter.interface';
 
 /**
- * Formatter para archivos Excel (.xlsx)
+ * Formatter para archivos Excel (.xlsx) con soporte para columnas dinámicas
  */
 @Injectable()
 export class XlsxLogFormatter implements LogFormatter {
-  private readonly EXCEL_HEADERS = [
+  private readonly DEFAULT_EXCEL_HEADERS = [
     'Timestamp',
     'Level',
     'Request ID',
@@ -19,11 +19,38 @@ export class XlsxLogFormatter implements LogFormatter {
     'Metadata',
   ];
 
+  private cachedDynamicHeaders: string[] | null = null;
+  private isDynamicMode = false;
+
+  formatHeader(isDynamic?: boolean, sampleEntry?: LogEntry): string {
+    this.isDynamicMode = isDynamic || false;
+
+    if (this.isDynamicMode && sampleEntry?.metadata) {
+      const metadataKeys = Object.keys(sampleEntry.metadata);
+      this.cachedDynamicHeaders = metadataKeys.map((key) =>
+        this.capitalizeHeader(key),
+      );
+    }
+
+    return '';
+  }
+
   formatEntry(entry: LogEntry, timestamp?: Date): string {
-    // Para XLSX, retornamos un objeto que luego se convertirá
     const logTimestamp = timestamp
       ? timestamp.toISOString()
       : new Date().toISOString();
+
+    if (this.isDynamicMode && this.cachedDynamicHeaders && entry.metadata) {
+      const rowData: Record<string, any> = {};
+
+      const metadataKeys = Object.keys(entry.metadata);
+      metadataKeys.forEach((key) => {
+        const headerKey = this.capitalizeHeader(key);
+        rowData[headerKey] = entry.metadata![key];
+      });
+
+      return JSON.stringify(rowData) + '\n';
+    }
 
     const rowData = {
       Timestamp: logTimestamp,
@@ -35,7 +62,6 @@ export class XlsxLogFormatter implements LogFormatter {
       Metadata: entry.metadata ? JSON.stringify(entry.metadata) : '',
     };
 
-    // Retornamos JSON string que luego se parseará para crear el Excel
     return JSON.stringify(rowData) + '\n';
   }
 
@@ -49,7 +75,6 @@ export class XlsxLogFormatter implements LogFormatter {
    * Convierte las entradas formateadas a un buffer de Excel real
    */
   createExcelBuffer(formattedEntries: string, existingData?: string): Buffer {
-    // Parsear entradas existentes si las hay
     const allEntries: any[] = [];
 
     if (existingData) {
@@ -60,35 +85,25 @@ export class XlsxLogFormatter implements LogFormatter {
       allEntries.push(...existingLines.map((line) => JSON.parse(line)));
     }
 
-    // Agregar nuevas entradas
     const newLines = formattedEntries
       .trim()
       .split('\n')
       .filter((line) => line.trim());
     allEntries.push(...newLines.map((line) => JSON.parse(line)));
 
-    // Crear workbook
+    const headersToUse =
+      this.cachedDynamicHeaders || this.DEFAULT_EXCEL_HEADERS;
+
     const workbook = XLSX.utils.book_new();
     const worksheet = XLSX.utils.json_to_sheet(allEntries, {
-      header: this.EXCEL_HEADERS,
+      header: headersToUse,
     });
 
-    // Configurar ancho de columnas
-    const columnWidths = [
-      { wch: 25 }, // Timestamp
-      { wch: 8 }, // Level
-      { wch: 15 }, // Request ID
-      { wch: 12 }, // User ID
-      { wch: 15 }, // Session ID
-      { wch: 50 }, // Message
-      { wch: 30 }, // Metadata
-    ];
+    const columnWidths = this.generateColumnWidths(headersToUse);
     worksheet['!cols'] = columnWidths;
 
-    // Agregar worksheet al workbook
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Logs');
 
-    // Convertir a buffer
     return XLSX.write(workbook, {
       type: 'buffer',
       bookType: 'xlsx',
@@ -97,10 +112,53 @@ export class XlsxLogFormatter implements LogFormatter {
   }
 
   supportsAppend(): boolean {
-    return false; // Excel requiere regeneración completa
+    return false;
   }
 
   validateEntry(entry: LogEntry): boolean {
     return !!(entry.level && entry.message);
+  }
+
+  resetDynamicMode(): void {
+    this.cachedDynamicHeaders = null;
+    this.isDynamicMode = false;
+  }
+
+  getCurrentHeaders(): string[] {
+    return this.cachedDynamicHeaders || this.DEFAULT_EXCEL_HEADERS;
+  }
+
+  private capitalizeHeader(key: string): string {
+    return key
+      .split('_')
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  }
+
+  private generateColumnWidths(headers: string[]): Array<{ wch: number }> {
+    return headers.map((header) => {
+      const baseWidth = Math.max(header.length + 5, 12);
+
+      if (
+        header.toLowerCase().includes('fecha') ||
+        header.toLowerCase().includes('timestamp')
+      ) {
+        return { wch: 25 };
+      }
+      if (
+        header.toLowerCase().includes('descripcion') ||
+        header.toLowerCase().includes('detalle')
+      ) {
+        return { wch: 40 };
+      }
+      if (
+        header.toLowerCase().includes('observacion') ||
+        header.toLowerCase().includes('comentario')
+      ) {
+        return { wch: 35 };
+      }
+
+      return { wch: baseWidth };
+    });
   }
 }

@@ -1,11 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BlobLoggingService } from '@src/sas/services/blob-logging/blob-logging.service';
-import { LogStrategyFactory } from '../../../src/sas/services/blob-logging/factories/log-strategy-factory';
-import {
-  LogFileType,
-  LogLevel,
-} from '../../../src/shared/dto/blob-logging.dto';
-import { LogStrategy } from '../../../src/shared/interfaces/services/blob-logging/log-strategy.interface';
+import { LogStrategyFactory } from '@src/sas/services/blob-logging/factories/log-strategy-factory';
+import { LogFileType, LogLevel } from '@src/shared/dto/blob-logging.dto';
+import { LogStrategy } from '@src/shared/interfaces/services/blob-logging/log-strategy.interface';
 
 describe('BlobLoggingService', () => {
   let service: BlobLoggingService;
