@@ -216,3 +216,5 @@ package-lock.json
 test-report.xml
 
 *.py
+
+*.zip

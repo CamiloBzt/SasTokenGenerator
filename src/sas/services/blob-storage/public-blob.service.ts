@@ -69,7 +69,7 @@ export class PublicBlobService {
       const accountNameMatch = regex.exec(connectionString);
       return accountNameMatch ? accountNameMatch[1] : null;
     } catch (error) {
-      console.warn(
+      console.error(
         'Error extracting account name from connection string:',
         error,
       );
@@ -176,33 +176,49 @@ export class PublicBlobService {
     return result;
   }
 
-  private handleExposePublicError(error: any): never {
-    console.error('Error exposing public blob:', error);
+  private async cleanupDestinationBlob(
+    config: PublicStoreConfig,
+    fullBlobPath: string,
+  ): Promise<void> {
+    const publicBlobServiceClient = BlobServiceClient.fromConnectionString(
+      config.publicConnectionString,
+    );
 
-    // Si ya es una excepción conocida, relanzarla
-    if (
-      error instanceof BadRequestException ||
-      error instanceof BusinessErrorException ||
-      error instanceof InternalServerErrorException
-    ) {
-      throw error;
-    }
+    // Intentar eliminar como Block Blob
+    try {
+      const blockBlobClient = publicBlobServiceClient
+        .getContainerClient(config.publicContainerName)
+        .getBlockBlobClient(fullBlobPath);
 
-    // Errores específicos de Azure
-    if (error.statusCode === 404) {
-      throw new BusinessErrorException(ErrorMessages.BLOB_NOT_FOUND);
-    }
+      const blockExists = await blockBlobClient.exists();
+      if (blockExists) {
+        await blockBlobClient.deleteIfExists();
 
-    if (error.statusCode === 401 || error.statusCode === 403) {
-      throw new InternalServerErrorException(
-        `${ErrorMessages.SAS_PERMISSION} ${ErrorMessages.PUBLIC_STORE_ACCESS_ERROR}`,
+        return;
+      }
+    } catch (blockError) {
+      console.error(
+        `⚠️  Could not delete as Block Blob: ${blockError.message}`,
       );
     }
 
-    // Error genérico
-    throw new InternalServerErrorException(
-      `${ErrorMessages.EXPOSE_PUBLIC_FAILED} ${error.message ?? 'Error desconocido'}`,
-    );
+    // Intentar eliminar como Append Blob
+    try {
+      const appendBlobClient = publicBlobServiceClient
+        .getContainerClient(config.publicContainerName)
+        .getAppendBlobClient(fullBlobPath);
+
+      const appendExists = await appendBlobClient.exists();
+      if (appendExists) {
+        await appendBlobClient.deleteIfExists();
+
+        return;
+      }
+    } catch (appendError) {
+      console.error(
+        `⚠️  Could not delete as Append Blob: ${appendError.message}`,
+      );
+    }
   }
 
   private async exposePublicBlobByDownloadUpload(
@@ -210,22 +226,32 @@ export class PublicBlobService {
     config: PublicStoreConfig,
     fullBlobPath: string,
   ): Promise<{ blobInfo: BlobContentInfo; base64Data?: string }> {
-    // Descargar el archivo del store privado
+    // 1. Limpiar cualquier blob existente en el destino
+    await this.cleanupDestinationBlob(config, fullBlobPath);
+
+    // 2. Descargar el archivo del store privado
+
     const privateDownloadResult = await this.privateBlobService.downloadBlob(
       params.privateContainerName,
       params.directory,
       params.blobName,
     );
 
-    // Crear cliente para el store público
+    // 3. Crear cliente para el store público
     const publicBlobServiceClient = BlobServiceClient.fromConnectionString(
       config.publicConnectionString,
     );
 
-    // Subir el archivo al store público con el mismo path
+    // 4. Subir el archivo al store público como Block Blob
     const publicBlockBlobClient = publicBlobServiceClient
       .getContainerClient(config.publicContainerName)
       .getBlockBlobClient(fullBlobPath);
+
+    // Verificar una vez más que el destino está limpio antes de subir
+    const stillExists = await publicBlockBlobClient.exists();
+    if (stillExists) {
+      await publicBlockBlobClient.deleteIfExists();
+    }
 
     await publicBlockBlobClient.upload(
       privateDownloadResult.data,
@@ -241,6 +267,8 @@ export class PublicBlobService {
           sourceContainer: params.privateContainerName,
           sourceBlob: fullBlobPath,
           createdAt: new Date().toISOString(),
+          exposeMethod: 'download_upload',
+          recreated: 'true',
         },
       },
     );
@@ -263,7 +291,10 @@ export class PublicBlobService {
     config: PublicStoreConfig,
     fullBlobPath: string,
   ): Promise<{ blobInfo: BlobContentInfo; base64Data?: string }> {
-    // Generar SAS token para el blob fuente (privado) con permisos de READ
+    // 1. Limpiar cualquier blob existente en el destino
+    await this.cleanupDestinationBlob(config, fullBlobPath);
+
+    // 2. Generar SAS token para el blob fuente (privado) con permisos de READ
     const sourceSasData = await this.sasService.generateSasTokenWithParams(
       params.privateContainerName,
       fullBlobPath,
@@ -271,7 +302,7 @@ export class PublicBlobService {
       60, // 60 minutos para la operación de copia
     );
 
-    // Crear clientes para ambos stores
+    // 3. Crear clientes para ambos stores
     const publicBlobServiceClient = BlobServiceClient.fromConnectionString(
       config.publicConnectionString,
     );
@@ -281,7 +312,7 @@ export class PublicBlobService {
       .getContainerClient(config.publicContainerName)
       .getBlockBlobClient(fullBlobPath);
 
-    // Verificar que el blob fuente existe y obtener sus propiedades
+    // 4. Verificar que el blob fuente existe y obtener sus propiedades
     const sourceExists = await sourceBlockBlobClient.exists();
     if (!sourceExists) {
       throw new BusinessErrorException(ErrorMessages.BLOB_NOT_FOUND);
@@ -289,7 +320,13 @@ export class PublicBlobService {
 
     const sourceProperties = await sourceBlockBlobClient.getProperties();
 
-    // Realizar la copia directa
+    // 5. Verificar una vez más que el destino está limpio
+    const stillExists = await destinationBlockBlobClient.exists();
+    if (stillExists) {
+      await destinationBlockBlobClient.deleteIfExists();
+    }
+
+    // 6. Realizar la copia directa
     const copyOperation = await destinationBlockBlobClient.syncCopyFromURL(
       sourceSasData.sasUrl,
     );
@@ -300,7 +337,7 @@ export class PublicBlobService {
       );
     }
 
-    // Configurar metadatos en el blob de destino
+    // 7. Configurar metadatos en el blob de destino
     await destinationBlockBlobClient.setMetadata({
       expirationTime: new Date(
         Date.now() + params.expirationMinutes * 60 * 1000,
@@ -308,9 +345,11 @@ export class PublicBlobService {
       sourceContainer: params.privateContainerName,
       sourceBlob: fullBlobPath,
       createdAt: new Date().toISOString(),
+      exposeMethod: 'direct_copy',
+      recreated: 'true',
     });
 
-    // Preservar headers HTTP originales
+    // 8. Preservar headers HTTP originales
     await destinationBlockBlobClient.setHTTPHeaders({
       blobContentType: sourceProperties.contentType,
       blobContentEncoding: sourceProperties.contentEncoding,
@@ -324,7 +363,7 @@ export class PublicBlobService {
       size: sourceProperties.contentLength || 0,
     };
 
-    // Obtener Base64 si se solicita
+    // 9. Obtener Base64 si se solicita
     let base64Data: string | undefined;
     if (params.includeBase64) {
       const downloadResponse = await sourceBlockBlobClient.downloadToBuffer();
@@ -332,6 +371,39 @@ export class PublicBlobService {
     }
 
     return { blobInfo, base64Data };
+  }
+
+  private handleExposePublicError(error: any): never {
+    // Si ya es una excepción conocida, relanzarla
+    if (
+      error instanceof BadRequestException ||
+      error instanceof BusinessErrorException ||
+      error instanceof InternalServerErrorException
+    ) {
+      throw error;
+    }
+
+    // Errores específicos de Azure
+    if (error.statusCode === 404) {
+      throw new BusinessErrorException(ErrorMessages.BLOB_NOT_FOUND);
+    }
+
+    if (error.statusCode === 401 || error.statusCode === 403) {
+      throw new InternalServerErrorException(
+        `${ErrorMessages.SAS_PERMISSION} ${ErrorMessages.PUBLIC_STORE_ACCESS_ERROR}`,
+      );
+    }
+
+    if (error.code === 'InvalidBlobType' || error.statusCode === 409) {
+      throw new InternalServerErrorException(
+        `${ErrorMessages.EXPOSE_PUBLIC_FAILED} Conflicto de tipo de blob. El archivo fue limpiado pero aún existe un conflicto: ${error.message}`,
+      );
+    }
+
+    // Error genérico
+    throw new InternalServerErrorException(
+      `${ErrorMessages.EXPOSE_PUBLIC_FAILED} ${error.message ?? 'Error desconocido'}`,
+    );
   }
 
   async exposePublicBlob(

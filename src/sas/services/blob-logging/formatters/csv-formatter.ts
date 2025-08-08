@@ -28,9 +28,7 @@ export class CsvLogFormatter implements LogFormatter {
       const metadataKeys = Object.keys(sampleEntry.metadata);
       this.cachedDynamicHeaders = [...metadataKeys];
 
-      const headerLine = this.cachedDynamicHeaders.join(',') + '\n';
-
-      return headerLine;
+      return this.cachedDynamicHeaders.join(',') + '\n';
     }
 
     return this.DEFAULT_CSV_HEADERS.join(',') + '\n';
@@ -47,9 +45,7 @@ export class CsvLogFormatter implements LogFormatter {
         return value !== undefined ? this.escapeCsvField(String(value)) : '';
       });
 
-      const dynamicLine = metadataValues.join(',') + '\n';
-
-      return dynamicLine;
+      return metadataValues.join(',') + '\n';
     }
 
     const fields = [

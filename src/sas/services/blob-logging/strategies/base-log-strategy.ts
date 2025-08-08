@@ -32,13 +32,26 @@ export abstract class BaseLogStrategy implements LogStrategy {
 
     await this.writer.initialize(this.fileName, config);
 
-    if (
-      !config.dynamicColumns &&
-      this.formatter.formatHeader &&
-      (await this.isNewFile())
-    ) {
-      const header = this.formatter.formatHeader();
-      await this.writer.writeEntry(header);
+    if (await this.isNewFile()) {
+      const fileType = this.getFileType();
+
+      if (fileType === LogFileType.CSV && this.formatter.formatHeader) {
+        let header: string;
+
+        if (config.dynamicColumns) {
+          this.dynamicHeaderConfigured = false;
+        } else {
+          header = this.formatter.formatHeader(false);
+          await this.writer.writeEntry(header);
+        }
+      } else if (
+        fileType !== LogFileType.CSV &&
+        !config.dynamicColumns &&
+        this.formatter.formatHeader
+      ) {
+        const header = this.formatter.formatHeader();
+        await this.writer.writeEntry(header);
+      }
     }
 
     this.initialized = true;
@@ -111,10 +124,16 @@ export abstract class BaseLogStrategy implements LogStrategy {
   }
 
   private async setupDynamicMode(sampleEntry: LogEntry): Promise<void> {
-    if (this.formatter.formatHeader && sampleEntry.metadata) {
+    const fileType = this.getFileType();
+
+    if (
+      fileType === LogFileType.CSV &&
+      this.formatter.formatHeader &&
+      sampleEntry.metadata
+    ) {
       const dynamicHeader = this.formatter.formatHeader(true, sampleEntry);
 
-      if (dynamicHeader && (await this.isNewFile())) {
+      if (dynamicHeader) {
         await this.writer.writeEntry(dynamicHeader);
       }
 
@@ -138,15 +157,20 @@ export abstract class BaseLogStrategy implements LogStrategy {
 
     this.dynamicHeaderConfigured = false;
 
-    if (this.config.dynamicColumns && this.formatter.resetDynamicMode) {
+    if (this.formatter.resetDynamicMode) {
       this.formatter.resetDynamicMode();
     }
 
-    if (this.formatter.formatHeader) {
+    const fileType = this.getFileType();
+
+    if (fileType === LogFileType.CSV && this.formatter.formatHeader) {
       if (!this.config.dynamicColumns) {
-        const header = this.formatter.formatHeader();
+        const header = this.formatter.formatHeader(false);
         await this.writer.writeEntry(header);
       }
+    } else if (this.formatter.formatHeader && !this.config.dynamicColumns) {
+      const header = this.formatter.formatHeader();
+      await this.writer.writeEntry(header);
     }
   }
 
