@@ -9,16 +9,45 @@ import { LogStrategy } from '@src/shared/interfaces/services/blob-logging/log-st
 import { LogStrategyFactory } from './factories/log-strategy-factory';
 
 /**
- * Servicio de logging refactorizado usando Strategy Pattern
+ * @fileoverview
+ * Servicio de logging sobre Azure Blob Storage basado en **Strategy Pattern**.
+ *
+ * - Selección automática de estrategia según extensión o `config.fileType`.
+ * - Cachea estrategias inicializadas por combinación `fileName + config`.
+ * - Expone operaciones de alto nivel: agregar 1..N entradas, leer y consultar stats.
+ * - Valida configuración (nombres de contenedor, límite de tamaño, etc.).
+ *
+ * Estratégias soportadas (vía {@link LogStrategyFactory}):
+ * - `LOG`  → texto plano con append (Append Blobs).
+ * - `CSV`  → CSV con append (Append Blobs).
+ * - `XLSX` → Excel regenerado (Block Blobs).
+ *
+ * @module sas/services/blob-logging/blob-logging.service
  */
 @Injectable()
 export class BlobLoggingService {
+  /** Caché de estrategias por clave única (fileName + config). */
   private readonly strategyCache = new Map<string, LogStrategy>();
 
   constructor(private readonly logStrategyFactory: LogStrategyFactory) {}
 
   /**
-   * Agregar una sola entrada de log
+   * Agrega **una** entrada de log al archivo indicado.
+   *
+   * - Crea/recupera la estrategia adecuada.
+   * - Valida la entrada a través del formatter subyacente.
+   *
+   * @param {string} fileName - Nombre base del archivo (con/sin extensión).
+   * @param {LogEntry} entry - Entrada de log.
+   * @param {LogFileConfig} [config={}] - Configuración (contenedor, directorio, fileType, rotateDaily, etc.).
+   * @throws {InternalServerErrorException} Si falla la operación de escritura.
+   *
+   * @example
+   * await blobLoggingService.appendLog(
+   *   'audit',
+   *   { level: 'INFO', message: 'User login', userId: '42' },
+   *   { containerName: 'logs', directory: 'auth', rotateDaily: true }
+   * );
    */
   async appendLog(
     fileName: string,
@@ -37,7 +66,18 @@ export class BlobLoggingService {
   }
 
   /**
-   * Agregar múltiples entradas de log de una vez
+   * Agrega **múltiples** entradas de log en una sola operación.
+   *
+   * @param {string} fileName - Nombre base del archivo.
+   * @param {BulkLogEntry[]} entries - Entradas con `timestamp` opcional por cada una.
+   * @param {LogFileConfig} [config={}] - Configuración de logging.
+   * @throws {InternalServerErrorException} Si falla la operación de escritura.
+   *
+   * @example
+   * await blobLoggingService.appendBulkLogs('audit.csv', [
+   *   { level: 'INFO', message: 'A', timestamp: new Date() },
+   *   { level: 'ERROR', message: 'B' }
+   * ], { fileType: LogFileType.CSV });
    */
   async appendBulkLogs(
     fileName: string,
@@ -56,7 +96,15 @@ export class BlobLoggingService {
   }
 
   /**
-   * Leer logs completos (para debugging o consulta)
+   * Lee los logs (útil para debugging/inspección).
+   *
+   * - Para `.log`/`.csv`: retorna el contenido como texto.
+   * - Para `.xlsx`: retorna un **resumen** (tamaño, entradas, última modificación, modo).
+   *
+   * @param {string} fileName - Nombre base del archivo.
+   * @param {LogFileConfig} [config={}] - Configuración de logging.
+   * @returns {Promise<string>} Contenido o resumen, según estrategia.
+   * @throws {InternalServerErrorException} Si falla la lectura.
    */
   async readLogs(
     fileName: string,
@@ -74,7 +122,16 @@ export class BlobLoggingService {
   }
 
   /**
-   * Obtener estadísticas del archivo de log
+   * Obtiene estadísticas del archivo de log:
+   * - Existencia, tipo, tamaño (bytes/MB), `lastModified`, `createdAt`.
+   *
+   * @param {string} fileName - Nombre base del archivo.
+   * @param {LogFileConfig} [config={}]
+   * @returns {Promise<{exists:boolean; fileType:LogFileType; sizeBytes?:number; sizeMB?:number; lastModified?:Date; createdAt?:string;}>}
+   *
+   * @example
+   * const stats = await blobLoggingService.getLogFileStats('audit', { fileType: LogFileType.LOG });
+   * if (stats.exists) console.log(stats.sizeMB);
    */
   async getLogFileStats(
     fileName: string,
@@ -92,6 +149,7 @@ export class BlobLoggingService {
       return await strategy.getLogFileStats();
     } catch (error: any) {
       console.error('Error getting log file stats:', error);
+      // Fallback: deducir tipo de archivo de forma interna (usa método de la factory)
       return {
         exists: false,
         fileType: this.logStrategyFactory['determineFileType'](
@@ -103,14 +161,19 @@ export class BlobLoggingService {
   }
 
   /**
-   * Limpia la caché de estrategias (útil para testing o cambios de configuración)
+   * Limpia la caché de estrategias (útil para **tests** o cuando cambian variables de configuración).
+   *
+   * @example
+   * afterEach(() => blobLoggingService.clearStrategyCache());
    */
   clearStrategyCache(): void {
     this.strategyCache.clear();
   }
 
   /**
-   * Obtiene información sobre los tipos de archivo soportados
+   * Retorna información de los formatos soportados por el sistema.
+   *
+   * @returns {{fileType:LogFileType; extension:string; supportsAppend:boolean; description:string;}[]}
    */
   getSupportedFormats(): {
     fileType: LogFileType;
@@ -140,6 +203,15 @@ export class BlobLoggingService {
     ];
   }
 
+  /**
+   * (Interno) Devuelve el límite superior permitido para `maxFileSize` según el tipo.
+   * - LOG/CSV (Append Blobs): 50 GB
+   * - XLSX (Block Blobs): 2 GB
+   * - Default: 1 GB
+   *
+   * @param {LogFileConfig} config
+   * @returns {number} Límite superior en MB.
+   */
   private getMaxFileSizeLimit(config: LogFileConfig): number {
     const fileType = this.logStrategyFactory['determineFileType']('', config);
 
@@ -157,7 +229,18 @@ export class BlobLoggingService {
   }
 
   /**
-   * Valida la configuración de logging
+   * Valida una configuración de logging.
+   * - `containerName`: minúsculas, números y guiones (estándar Azure).
+   * - `directory`: no debe contener `..`.
+   * - `maxFileSize`: 1..máximo permitido por tipo.
+   * - `fileType`: debe estar soportado por la factory.
+   *
+   * @param {LogFileConfig} config
+   * @returns {{ isValid:boolean; errors:string[] }}
+   *
+   * @example
+   * const { isValid, errors } = blobLoggingService.validateLoggingConfig({ containerName: 'Mi-Container' });
+   * // => isValid:false, errors:['Container name must be lowercase alphanumeric with hyphens']
    */
   validateLoggingConfig(config: LogFileConfig): {
     isValid: boolean;
@@ -208,7 +291,16 @@ export class BlobLoggingService {
   }
 
   /**
-   * Obtiene o crea una estrategia para el archivo y configuración dados
+   * (Interno) Obtiene/crea una estrategia para la pareja `fileName` + `config`.
+   *
+   * - Valida la configuración previa.
+   * - Inicializa la estrategia si no existe en caché.
+   * - Cachea la instancia para reuso.
+   *
+   * @param {string} fileName - Nombre base del archivo.
+   * @param {LogFileConfig} config - Configuración de logging.
+   * @returns {Promise<LogStrategy>} Estrategia inicializada.
+   * @throws {Error} Si la configuración es inválida.
    */
   private async getStrategy(
     fileName: string,
@@ -238,7 +330,13 @@ export class BlobLoggingService {
   }
 
   /**
-   * Genera una clave única para el caché basada en fileName y config
+   * (Interno) Genera una clave única de caché para una combinación `fileName + config`.
+   *
+   * Clave: `${fileName}::${container|directory|fileType|rotation|maxFileSize}`
+   *
+   * @param {string} fileName
+   * @param {LogFileConfig} config
+   * @returns {string} Clave única determinística.
    */
   private generateCacheKey(fileName: string, config: LogFileConfig): string {
     const configKey = [

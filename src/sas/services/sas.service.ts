@@ -22,19 +22,42 @@ import {
 } from '@src/shared/interfaces/services/sas.interface';
 import { v4 as uuidv4 } from 'uuid';
 
+/**
+ * @fileoverview
+ * Servicio central para **generación de SAS tokens** de Azure Blob Storage.
+ *
+ * Características:
+ * - Soporta **Shared Key** (connection string) y **User Delegation Key** (Azure AD).
+ * - Genera SAS a **nivel blob** o **nivel contenedor**, con permisos e IP opcional.
+ * - Permite **custom connection string** (multi-cuenta/tenant).
+ * - Calcula expiración y construye resultado estándar (`SasGenerationResult`).
+ *
+ * Seguridad y configuración:
+ * - Lee variables desde `ConfigService` (`azure.connectionString`, `azure.storageAccountName`, `azure.tenantId`, `azure.clientId`, `azure.clientSecret`).
+ * - En entornos no `prod`, desactiva la validación TLS para desarrollo (solo local).
+ *
+ * @module sas/services/sas.service
+ */
 @Injectable()
 export class SasService {
+  /**
+   * @param {ConfigService} configService - Servicio de configuración.
+   */
   constructor(private readonly configService: ConfigService) {
     const isProduction =
       this.configService.get<string>('environment') === 'prod';
 
     if (!isProduction) {
+      // ⚠️ Solo para entornos no productivos (evita errores de certificados en dev)
       process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
     }
   }
 
   /**
-   * Obtiene las credenciales de Azure AD usando las variables de entorno.
+   * Obtiene las **credenciales de Azure AD** desde variables de entorno.
+   *
+   * @returns {ClientSecretCredential} Credencial de cliente (tenantId, clientId, clientSecret).
+   * @throws {BadRequestException} Si faltan variables requeridas.
    */
   private getAzureCredential(): ClientSecretCredential {
     const tenantId = this.configService.get<string>('azure.tenantId');
@@ -48,8 +71,11 @@ export class SasService {
   }
 
   /**
-   * Extrae el nombre del contenedor y del blob a partir de la URL.
-   * La función getBlobInfoFromUrl se encuentra en src/sas/utils.ts.
+   * Extrae `{ containerName, blobName }` desde una URL de blob.
+   *
+   * @param {string} blobUrl - URL absoluta del blob.
+   * @returns {{containerName:string; blobName:string;}}
+   * @throws {BadRequestException} Si la URL es inválida.
    */
   private getBlobInfo(blobUrl: string): {
     containerName: string;
@@ -64,8 +90,10 @@ export class SasService {
   }
 
   /**
-   * Calcula el intervalo de validez del SAS
-   * @param expirationMinutes - Minutos hasta la expiración (por defecto 5)
+   * Calcula la **fecha de expiración** del SAS (solo `expiresOn`).
+   *
+   * @param {number} [expirationMinutes=5] - Minutos hasta expiración.
+   * @returns {{expiresOn: Date}}
    */
   private computeValidity(expirationMinutes: number = 5): {
     expiresOn: Date;
@@ -75,8 +103,11 @@ export class SasService {
   }
 
   /**
-   * Para User Delegation Key necesitamos fechas de inicio y fin
-   * pero para el SAS token solo usaremos la fecha de fin
+   * Calcula `startsOn` y `expiresOn` para **User Delegation Key**.
+   * (Azure requiere un rango de tiempo para obtener la llave)
+   *
+   * @param {number} [expirationMinutes=5] - Minutos hasta expiración.
+   * @returns {{startsOn: Date; expiresOn: Date}}
    */
   private computeValidityForUserDelegation(expirationMinutes: number = 5): {
     startsOn: Date;
@@ -88,7 +119,11 @@ export class SasService {
   }
 
   /**
-   * Extrae el nombre de la cuenta del connection string
+   * Extrae **AccountName** desde un **connection string**.
+   *
+   * @param {string} connectionString
+   * @returns {string} Nombre de cuenta de storage.
+   * @throws {BadRequestException} Si el connection string es inválido.
    */
   private extractAccountNameFromConnectionString(
     connectionString: string,
@@ -108,7 +143,13 @@ export class SasService {
   }
 
   /**
-   * Crea el cliente de BlobService basado en el connection string o credenciales
+   * Crea el **BlobServiceClient**:
+   * - Si hay `connectionString` (parámetro o config): usa **SharedKey**.
+   * - Si no, usa **Azure AD** (User Delegation Key) con `accountName`.
+   *
+   * @param {string} [connectionString] - Connection string opcional (prioritario).
+   * @returns {{ blobServiceClient: BlobServiceClient; useSharedKey: boolean; accountName: string; }}
+   * @throws {BadRequestException} Si faltan variables requeridas.
    */
   private createBlobServiceClient(connectionString?: string): {
     blobServiceClient: BlobServiceClient;
@@ -153,7 +194,13 @@ export class SasService {
   }
 
   /**
-   * Construye las opciones SAS y la URL base
+   * Construye **opciones SAS** (`BlobSASSignatureValues`) y la **URL base** (sin token).
+   * Soporta SAS para **blob específico** o **contenedor**.
+   *
+   * @param {SasGenerationParams} params - Parámetros de generación.
+   * @param {string} accountName     - Nombre de cuenta.
+   * @param {Date} expiresOn         - Fecha de expiración del SAS.
+   * @returns {{ sasOptions: BlobSASSignatureValues; sasUrl: string; permissionsString: string }}
    */
   private buildSasOptionsAndUrl(
     params: SasGenerationParams,
@@ -166,7 +213,7 @@ export class SasService {
   } {
     const { containerName, fileName, permissions, userIp } = params;
 
-    // Construir permisos
+    // Construir permisos como string (`r`, `rw`, etc.)
     const permissionsString = permissions ? permissions.join('') : 'r';
 
     let sasOptions: BlobSASSignatureValues;
@@ -202,7 +249,14 @@ export class SasService {
   }
 
   /**
-   * Construye el resultado final del SAS
+   * Construye el objeto **resultado** (`SasGenerationResult`) a partir del token.
+   *
+   * @param {SasGenerationParams} params
+   * @param {string} sasToken
+   * @param {string} sasUrl - URL base sin token.
+   * @param {string} permissionsString
+   * @param {Date} expiresOn
+   * @returns {SasGenerationResult}
    */
   private buildSasResult(
     params: SasGenerationParams,
@@ -228,7 +282,13 @@ export class SasService {
   }
 
   /**
-   * Método principal para generar SAS tokens (refactorizado)
+   * Núcleo de generación de **SAS token** (refactorizado).
+   * Selecciona SharedKey vs UserDelegationKey, arma opciones, genera token y construye resultado.
+   *
+   * @param {SasGenerationParams} params - Parámetros de SAS (contenedor, blob opcional, permisos, expiración, IP).
+   * @param {string} [customConnectionString] - Connection string alternativo (multi-cuenta).
+   * @returns {Promise<SasGenerationResult>}
+   * @throws {BadRequestException | InternalServerErrorException}
    */
   private async generateSasTokenCore(
     params: SasGenerationParams,
@@ -272,6 +332,19 @@ export class SasService {
     );
   }
 
+  /**
+   * Genera el **token SAS** utilizando:
+   * - **Shared Key** (si hay connection string) o
+   * - **User Delegation Key** (Azure AD).
+   *
+   * @param {BlobServiceClient} blobServiceClient
+   * @param {BlobSASSignatureValues} sasOptions
+   * @param {boolean} useSharedKey
+   * @param {number} expirationMinutes
+   * @param {string} accountName
+   * @returns {Promise<string>} Token SAS (querystring).
+   * @throws {InternalServerErrorException} Si falla la obtención de claves o la firma.
+   */
   private async generateSasToken(
     blobServiceClient: BlobServiceClient,
     sasOptions: BlobSASSignatureValues,
@@ -341,7 +414,13 @@ export class SasService {
   }
 
   /**
-   * Genera un SAS Token para el blob indicado en la URL, opcionalmente restringido por IP.
+   * Genera un **SAS Token** para el blob indicado por **URL**, con permisos `r`
+   * y **opcionalmente restringido por IP**.
+   *
+   * @param {string} blobUrl - URL absoluta del blob destino.
+   * @param {string} [userIp] - IP para restringir el rango (`start=end=userIp`).
+   * @returns {Promise<{ sasUrl: string; sasToken: string; permissions: string; expiresOn: Date; containerName: string; blobName: string; requestId: string; }>}
+   * @throws {BadRequestException | InternalServerErrorException}
    */
   async generateSasUrl(
     blobUrl: string,
@@ -412,7 +491,14 @@ export class SasService {
   }
 
   /**
-   * Genera un SAS Token con parámetros específicos
+   * Genera un **SAS Token** con parámetros específicos.
+   *
+   * @param {string} containerName - Contenedor de destino.
+   * @param {string} [fileName] - Blob específico (opcional).
+   * @param {SasPermission[]} [permissions] - Permisos concatenables: `r`, `w`, `d`, `l`, `c`, `a`, etc.
+   * @param {number} [expirationMinutes] - Minutos de validez (default 30).
+   * @param {string} [userIp] - IP para restricción de acceso (opcional).
+   * @returns {Promise<SasGenerationResult>}
    */
   async generateSasTokenWithParams(
     containerName: string,
@@ -431,7 +517,17 @@ export class SasService {
   }
 
   /**
-   * Genera un SAS Token con parámetros específicos usando un connection string personalizado
+   * Genera un **SAS Token** usando un **connection string personalizado**.
+   *
+   * Útil para operar sobre **otra cuenta** o **otra suscripción** distinta a la configurada por defecto.
+   *
+   * @param {string} connectionString - Connection string alternativo.
+   * @param {string} containerName    - Contenedor de destino.
+   * @param {string} [fileName]       - Blob específico (opcional).
+   * @param {SasPermission[]} [permissions]      - Permisos solicitados.
+   * @param {number} [expirationMinutes]         - Minutos de validez.
+   * @param {string} [userIp]                    - Restricción por IP.
+   * @returns {Promise<SasGenerationResult>}
    */
   async generateSasTokenWithCustomConnection(
     connectionString: string,

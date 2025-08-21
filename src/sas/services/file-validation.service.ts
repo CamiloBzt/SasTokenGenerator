@@ -2,10 +2,31 @@ import { Injectable } from '@nestjs/common';
 import { ErrorMessages } from '@src/shared/enums/error-messages.enum';
 import { BadRequestException } from '@src/shared/exceptions/bad-request.exception';
 
+/**
+ * @fileoverview
+ * Servicio de validación de archivos/blobs para cargas a Azure Storage.
+ *
+ * Funcionalidad:
+ * - Mapea **MIME types ↔ extensiones** soportadas.
+ * - Valida coherencia entre **MIME type** y **extensión**.
+ * - Valida que un **blobName** contenga **extensión válida**.
+ * - Verifica coincidencia de extensiones entre **archivo original** y **blobName**.
+ * - Flujos de validación completos para **multipart** y **base64**.
+ *
+ * @module sas/services/file-validation.service
+ *
+ * @example
+ * // Validación multipart típica (Multer)
+ * fileValidationService.validateMultipartUpload(file, 'uploads/report-2025.xlsx');
+ *
+ * // Validación base64
+ * fileValidationService.validateBase64Upload('image/png', 'avatars/user-1.png');
+ */
 @Injectable()
 export class FileValidationService {
   /**
-   * Mapeo de tipos MIME a extensiones válidas
+   * Mapeo de tipos MIME a extensiones válidas.
+   * Clave: MIME; Valor: lista de extensiones (en minúscula, con punto).
    */
   private readonly mimeToExtensions: Record<string, string[]> = {
     // Documentos
@@ -55,7 +76,14 @@ export class FileValidationService {
   };
 
   /**
-   * Extrae la extensión del nombre del archivo
+   * Obtiene la extensión (incluyendo el punto) a partir del nombre del archivo.
+   *
+   * @param {string} fileName - Nombre del archivo o blob (p. ej., `report.Q1.xlsx`).
+   * @returns {string} Extensión en minúscula (p. ej., `.xlsx`) o cadena vacía si no hay extensión.
+   *
+   * @example
+   * getFileExtension('photo.JPG'); // '.jpg'
+   * getFileExtension('no-extension'); // ''
    */
   private getFileExtension(fileName: string): string {
     const lastDotIndex = fileName.lastIndexOf('.');
@@ -66,7 +94,23 @@ export class FileValidationService {
   }
 
   /**
-   * Valida que la extensión del archivo coincida con el tipo MIME
+   * Valida que el **tipo MIME** corresponda a la **extensión** del archivo.
+   *
+   * Reglas:
+   * - La extensión debe existir.
+   * - El MIME debe estar soportado por el mapeo.
+   * - La extensión debe estar dentro de las permitidas para ese MIME.
+   *
+   * @param {string} mimeType - Tipo MIME reportado (p. ej., `image/png`).
+   * @param {string} fileName - Nombre del archivo o blob (p. ej., `avatar.png`).
+   * @throws {BadRequestException}
+   *  - `FILE_EXTENSION_MISSING` si no hay extensión.
+   *  - `MIME_TYPE_NOT_ALLOWED` si el MIME no está soportado.
+   *  - `FILE_EXTENSION_MISMATCH` si la extensión no corresponde al MIME.
+   *
+   * @example
+   * validateMimeTypeAndExtension('text/csv', 'data.csv'); // OK
+   * validateMimeTypeAndExtension('text/csv', 'data.txt'); // throws FILE_EXTENSION_MISMATCH
    */
   validateMimeTypeAndExtension(mimeType: string, fileName: string): void {
     const fileExtension = this.getFileExtension(fileName);
@@ -99,7 +143,16 @@ export class FileValidationService {
   }
 
   /**
-   * Valida que el nombre del blob tenga una extensión válida
+   * Valida que el **nombre del blob** contenga una **extensión válida** (soportada).
+   *
+   * @param {string} blobName - Nombre de destino en el storage (p. ej., `uploads/q2/report.xlsx`).
+   * @throws {BadRequestException}
+   *  - `FILE_EXTENSION_MISSING` si no hay extensión.
+   *  - `FILE_EXTENSION_NOT_ALLOWED` si la extensión no está en la lista de soportadas.
+   *
+   * @example
+   * validateBlobNameExtension('docs/contract.pdf'); // OK
+   * validateBlobNameExtension('docs/contract'); // throws FILE_EXTENSION_MISSING
    */
   validateBlobNameExtension(blobName: string): void {
     const extension = this.getFileExtension(blobName);
@@ -121,7 +174,17 @@ export class FileValidationService {
   }
 
   /**
-   * Valida que la extensión del archivo original coincida con el blobName
+   * Verifica que la **extensión** del archivo original **coincida** con la del blob de destino.
+   *
+   * @param {string} originalFileName - Nombre de archivo local/subido (p. ej., `report.xlsx`).
+   * @param {string} blobName - Nombre de destino en el storage (p. ej., `inbox/report.xlsx`).
+   * @throws {BadRequestException}
+   *  - `FILE_EXTENSION_MISSING` si alguno no tiene extensión.
+   *  - `FILE_EXTENSION_MISMATCH` si las extensiones difieren.
+   *
+   * @example
+   * validateFileExtensionMatch('a.csv', 'data/daily.csv'); // OK
+   * validateFileExtensionMatch('a.csv', 'data/daily.txt'); // throws FILE_EXTENSION_MISMATCH
    */
   validateFileExtensionMatch(originalFileName: string, blobName: string): void {
     const originalExtension = this.getFileExtension(originalFileName);
@@ -147,7 +210,19 @@ export class FileValidationService {
   }
 
   /**
-   * Validación completa para upload multipart
+   * Validación integral para **upload multipart** (Multer).
+   *
+   * Pasos:
+   * 1) `validateBlobNameExtension` (el destino debe incluir extensión válida).
+   * 2) `validateFileExtensionMatch` (extensión de archivo vs blobName).
+   * 3) `validateMimeTypeAndExtension` (MIME vs extensión).
+   *
+   * @param {Express.Multer.File} file - Archivo recibido por Multer.
+   * @param {string} blobName - Nombre de destino en storage.
+   * @throws {BadRequestException} Si alguna regla de validación falla.
+   *
+   * @example
+   * validateMultipartUpload(req.file, 'uploads/images/logo.png');
    */
   validateMultipartUpload(file: Express.Multer.File, blobName: string): void {
     // Validar que el blobName tenga extensión
@@ -161,7 +236,18 @@ export class FileValidationService {
   }
 
   /**
-   * Validación completa para upload Base64
+   * Validación integral para **upload Base64** (data URL).
+   *
+   * Pasos:
+   * 1) `validateBlobNameExtension` (el destino debe incluir extensión válida).
+   * 2) `validateMimeTypeAndExtension` (MIME vs extensión del blob).
+   *
+   * @param {string} mimeType - Tipo MIME declarado (p. ej., `image/png`).
+   * @param {string} blobName - Nombre de destino en storage (con extensión).
+   * @throws {BadRequestException} Si la validación falla.
+   *
+   * @example
+   * validateBase64Upload('application/pdf', 'docs/contract.pdf');
    */
   validateBase64Upload(mimeType: string, blobName: string): void {
     // Validar que el blobName tenga extensión

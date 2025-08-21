@@ -7,20 +7,53 @@ import { LogWriter } from '@src/shared/interfaces/services/blob-logging/log-writ
 import { SasService } from '../../sas.service';
 
 /**
- * Writer para archivos que requieren regeneración completa (XLSX)
+ * @fileoverview
+ * Implementación de {@link LogWriter} que escribe en **Azure Block Blobs**.
+ *
+ * Ideal para formatos que requieren **regenerar el archivo completo** en cada escritura
+ * (p. ej., `.xlsx`), pero funciona también con contenidos serializados como “JSON lines”.
+ *
+ * Características:
+ * - Mantiene un **buffer en memoria** y sobrescribe el blob completo en `flushBuffer()`.
+ * - Genera SAS con permisos mínimos necesarios (READ, WRITE, CREATE).
+ * - Expone utilidades de rotación, lectura y estadísticas del blob.
+ *
+ * @module sas/services/blob-logging/writers/block-blob-writer
  */
 @Injectable()
 export class BlockBlobWriter implements LogWriter {
+  /** Cliente de Azure para operar sobre el Block Blob. */
   private blockBlobClient: BlockBlobClient;
+
+  /** Nombre de archivo actual (con extensión). */
   private fileName: string;
+
+  /** Configuración del archivo (contenedor, directorio, límites, etc.). */
   private config: LogFileConfig;
+
+  /** Buffer en memoria para acumular entradas (serializadas por línea). */
   private contentBuffer: string[] = []; // Buffer en memoria para acumular entradas
 
+  /**
+   * @param {SasService} sasService - Servicio para generar SAS firmados.
+   * @param {LogFileType} fileType - Tipo de archivo para asignar `content-type` adecuado.
+   */
   constructor(
     private readonly sasService: SasService,
     private readonly fileType: LogFileType,
   ) {}
 
+  /**
+   * Inicializa el writer:
+   * - Construye el `BlockBlobClient`.
+   * - Carga contenido existente en memoria (si lo hay) a `contentBuffer`.
+   *
+   * @param {string} fileName - Nombre de archivo (con extensión).
+   * @param {LogFileConfig} config - Configuración (container, directory, maxFileSize, etc.).
+   *
+   * @example
+   * await writer.initialize('logs-2025.xlsx', { containerName: 'logs', directory: 'app' });
+   */
   async initialize(fileName: string, config: LogFileConfig): Promise<void> {
     this.fileName = fileName;
     this.config = config;
@@ -30,6 +63,13 @@ export class BlockBlobWriter implements LogWriter {
     await this.loadExistingContent();
   }
 
+  /**
+   * Crea el `BlockBlobClient` con SAS.
+   * Permisos: READ, WRITE, CREATE.
+   *
+   * @returns {Promise<BlockBlobClient>} Cliente listo para subir contenido.
+   * @throws {InternalServerErrorException} Si falla la generación de SAS o acceso.
+   */
   private async createBlockBlobClient(): Promise<BlockBlobClient> {
     const containerName = this.config.containerName || 'logs';
     const directory = this.config.directory || 'application';
@@ -54,6 +94,12 @@ export class BlockBlobWriter implements LogWriter {
     }
   }
 
+  /**
+   * Carga el contenido existente del blob al buffer en memoria.
+   *
+   * - Para `.xlsx` u otros, se suele manejar como **JSON lines** dentro del buffer.
+   * - Si hay error o el blob está vacío, el buffer queda limpio.
+   */
   private async loadExistingContent(): Promise<void> {
     try {
       const exists = await this.blockBlobClient.exists();
@@ -75,6 +121,11 @@ export class BlockBlobWriter implements LogWriter {
     }
   }
 
+  /**
+   * Agrega UNA entrada ya formateada al buffer y escribe inmediatamente.
+   *
+   * @param {string} formattedContent - Línea serializada (p. ej., JSON).
+   */
   async writeEntry(formattedContent: string): Promise<void> {
     // Agregar al buffer en memoria
     this.contentBuffer.push(formattedContent.trim());
@@ -83,6 +134,11 @@ export class BlockBlobWriter implements LogWriter {
     await this.flushBuffer();
   }
 
+  /**
+   * Agrega varias entradas al buffer y escribe todo de una vez.
+   *
+   * @param {string} formattedContent - Varias líneas (separadas por `\n`).
+   */
   async writeBulk(formattedContent: string): Promise<void> {
     // Agregar todas las entradas al buffer
     const newEntries = formattedContent
@@ -95,6 +151,14 @@ export class BlockBlobWriter implements LogWriter {
     await this.flushBuffer();
   }
 
+  /**
+   * Sincroniza el buffer con Azure:
+   * - Une todas las líneas con `\n`.
+   * - Sube el archivo completo (sobrescribe).
+   * - Establece `content-type` y metadata estándar.
+   *
+   * @throws {InternalServerErrorException} Si la subida falla.
+   */
   private async flushBuffer(): Promise<void> {
     if (this.contentBuffer.length === 0) return;
 
@@ -130,6 +194,11 @@ export class BlockBlobWriter implements LogWriter {
     }
   }
 
+  /**
+   * Indica si el archivo debe **rotarse** por tamaño.
+   *
+   * @returns {Promise<boolean>} `true` si supera `maxFileSize` (MB); `false` si no o si falla el check.
+   */
   async needsRotation(): Promise<boolean> {
     try {
       const properties = await this.blockBlobClient.getProperties();
@@ -142,6 +211,14 @@ export class BlockBlobWriter implements LogWriter {
     }
   }
 
+  /**
+   * Rota el archivo actual:
+   * - Limpia el buffer.
+   * - Genera nuevo nombre con sufijo `-rotated-{timestamp}`.
+   * - Crea un nuevo `BlockBlobClient` apuntando al archivo rotado.
+   *
+   * @returns {Promise<string>} Nombre del archivo rotado.
+   */
   async rotate(): Promise<string> {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const [baseName, extension] = this.fileName.split('.');
@@ -157,6 +234,11 @@ export class BlockBlobWriter implements LogWriter {
     return rotatedFileName;
   }
 
+  /**
+   * Obtiene estadísticas del blob (existencia, tamaño, fechas).
+   *
+   * @returns {Promise<{ exists: boolean; sizeBytes?: number; sizeMB?: number; lastModified?: Date; createdAt?: string; }>}
+   */
   async getStats(): Promise<{
     exists: boolean;
     sizeBytes?: number;
@@ -185,11 +267,22 @@ export class BlockBlobWriter implements LogWriter {
     }
   }
 
+  /**
+   * Lee el contenido actual desde el **buffer en memoria**.
+   * (Útil cuando el formato se maneja como JSON lines antes de convertir a binario).
+   *
+   * @returns {Promise<string>} Contenido concatenado por `\n`.
+   */
   async readContent(): Promise<string> {
     // Para block blobs, retornamos el contenido del buffer actual
     return this.contentBuffer.join('\n');
   }
 
+  /**
+   * Limpia recursos:
+   * - Asegura escritura pendiente con `flushBuffer()`.
+   * - Limpia el buffer en memoria.
+   */
   async cleanup(): Promise<void> {
     // Asegurar que todo se escriba antes de limpiar
     await this.flushBuffer();

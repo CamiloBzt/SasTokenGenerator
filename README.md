@@ -7,7 +7,8 @@
 
 ## **Introducción**
 
-Este proyecto implementa un ecosistema completo de servicios backend para la gestión segura de Azure Blob Storage, incluyendo generación de SAS Tokens, operaciones CRUD de archivos, y gestión de contenedores públicos y privados. Utiliza autenticación con Azure Active Directory (Azure AD) y delegación de usuario (User Delegation Key) para proporcionar un mecanismo centralizado y seguro para el manejo de blobs.
+Este proyecto implementa un ecosistema completo de servicios backend para la gestión segura de Azure Blob Storage, incluyendo generación de SAS Tokens, operaciones CRUD de archivos, gestión de contenedores públicos y privados, y un módulo avanzado de Blob Logging para creación de archivos estructurados (LOG, CSV, XLSX).
+Utiliza autenticación con Azure Active Directory (Azure AD) y delegación de usuario (User Delegation Key) para proporcionar un mecanismo centralizado y seguro para el manejo de blobs.
 
 ### **Información del servicio**
 
@@ -27,6 +28,7 @@ Este servicio proporciona una API RESTful completa para:
 - **Contenedores Públicos:** Exposición temporal de archivos para acceso público
 - **Validación Avanzada:** Tipos MIME, tamaños de archivo y extensiones
 - **Seguridad:** Restricciones por IP, tiempo de expiración y permisos granulares
+- **Blob Logging:** Creación y gestión de archivos estructurados en LOG, CSV y XLSX
 
 ### **Servicios Disponibles**
 
@@ -49,6 +51,13 @@ Este servicio proporciona una API RESTful completa para:
 - Exposición temporal de archivos privados
 - Generación de URLs públicas con expiración
 - Soporte para contenedores públicos
+
+#### 📊 **Blob Logging**
+
+- Generación de archivos LOG, CSV y XLSX
+- Estrategias de escritura optimizadas (append, chunking, block blob regeneration)
+- Endpoints para agregar entradas, leer contenido y obtener estadísticas
+- Casos de uso: auditoría, reporting, analítica y BI
 
 ### **Especificaciones Técnicas**
 
@@ -111,6 +120,16 @@ Exposición temporal de archivos privados:
 - **Expose Public:** Convierte archivos privados en URLs públicas temporales
 - **List Public:** Lista archivos disponibles en contenedores públicos
 - **Time-based Expiration:** URLs que expiran automáticamente
+
+#### **4. Blob Logging Controller (/logging)**
+
+Módulo especializado en creación de archivos estructurados:
+
+- **Append:** Agregar una entrada individual
+- **Append Bulk:** Agregar múltiples entradas en lote
+- **Read:** Leer contenido o metadatos
+- **Stats:** Obtener estadísticas del archivo (tamaño, estrategia, última modificación)
+- **Formats:** Consultar formatos soportados (log, csv, xlsx)
 
 ### **Diagramas del Sistema**
 
@@ -423,6 +442,260 @@ directory: documentos/2024
 | --------------- | --------------------------------------------------- |
 | **Endpoint**    | `POST /blob/list-public`                            |
 | **Descripción** | Lista archivos disponibles en el contenedor público |
+
+### 📊 Blob Logging
+
+Módulo especializado en la **gestión de logs estructurados** en Azure Blob Storage, soportando los formatos:
+
+- **LOG**: Texto estructurado, legible y eficiente para auditorías.
+- **CSV**: Ideal para análisis de datos, reporting y ciencia de datos.
+- **XLSX**: Reportes ejecutivos y dashboards de BI con formato enriquecido.
+
+Soporta estrategias de escritura optimizadas: _append_, _chunking_ y _block blob regeneration_, según el formato.
+
+---
+
+#### ➕ **Agregar una entrada**
+
+| **Campo**       | **Valor**                                       |
+| --------------- | ----------------------------------------------- |
+| **Endpoint**    | `POST /logging/append`                          |
+| **Descripción** | Agrega una sola entrada de log al archivo       |
+| **Formato**     | LOG, CSV o XLSX (definido en `config.fileType`) |
+
+**Body de ejemplo (CSV):**
+
+```json
+{
+  "fileName": "user-analytics",
+  "entry": {
+    "level": "INFO",
+    "message": "User action logged",
+    "metadata": { "action": "file_upload", "fileSize": 1024576 },
+    "userId": "user12345"
+  },
+  "config": {
+    "containerName": "analytics-logs",
+    "directory": "user-actions/2024",
+    "fileType": "csv",
+    "rotateDaily": true
+  }
+}
+```
+
+**Respuesta exitosa:**
+
+```json
+{
+  "status": {
+    "statusCode": 200,
+    "statusDescription": "Operación completada con éxito."
+  },
+  "data": {
+    "message": "Log entry added successfully",
+    "fileName": "user-analytics-2024-07-11.csv",
+    "fileType": "csv",
+    "strategy": "CsvLogStrategy",
+    "requestId": "123e4567-e89b-12d3-a456-426614174000"
+  }
+}
+```
+
+---
+
+#### 📦 **Agregar múltiples entradas**
+
+| **Campo**       | **Valor**                                         |
+| --------------- | ------------------------------------------------- |
+| **Endpoint**    | `POST /logging/append-bulk`                       |
+| **Descripción** | Agrega un lote de entradas optimizando estrategia |
+
+**Body de ejemplo (LOG):**
+
+```json
+{
+  "fileName": "transaction-flows",
+  "entries": [
+    {
+      "level": "INFO",
+      "message": "Transacción iniciada",
+      "metadata": { "transactionId": "TXN789126", "step": "initiation" },
+      "userId": "user12345",
+      "timestamp": "2024-07-11T10:00:00.000Z"
+    },
+    {
+      "level": "INFO",
+      "message": "Transferencia completada",
+      "metadata": { "transactionId": "TXN789126", "step": "completion" },
+      "userId": "user12345",
+      "timestamp": "2024-07-11T10:00:03.200Z"
+    }
+  ],
+  "config": {
+    "containerName": "banking-transaction-flows",
+    "directory": "complete-flows/2024",
+    "fileType": "log",
+    "rotateDaily": true
+  }
+}
+```
+
+**Respuesta exitosa:**
+
+```json
+{
+  "status": {
+    "statusCode": 200,
+    "statusDescription": "Operación completada con éxito."
+  },
+  "data": {
+    "message": "Bulk log entries added successfully",
+    "fileName": "transaction-flows",
+    "fileType": "log",
+    "strategy": "TraditionalLogStrategy",
+    "entriesCount": 2,
+    "optimizationUsed": "append_blob_streaming",
+    "requestId": "123e4567-e89b-12d3-a456-426614174000"
+  }
+}
+```
+
+---
+
+#### 📖 **Leer logs / contenido**
+
+| **Campo**       | **Valor**                                                                |
+| --------------- | ------------------------------------------------------------------------ |
+| **Endpoint**    | `POST /logging/read`                                                     |
+| **Descripción** | Lee el contenido de un log (texto plano) o devuelve metadatos si es XLSX |
+
+**Body de ejemplo (LOG):**
+
+```json
+{
+  "fileName": "banking-transfers",
+  "config": {
+    "containerName": "banking-prod-logs",
+    "directory": "transfers/2024",
+    "fileType": "log",
+    "rotateDaily": true
+  }
+}
+```
+
+**Respuesta exitosa:**
+
+```json
+{
+  "status": {
+    "statusCode": 200,
+    "statusDescription": "Operación completada con éxito."
+  },
+  "data": {
+    "content": "[2024-07-11T10:00:00.000Z] [INFO] Transferencia completada...",
+    "fileName": "banking-transfers-2024-07-11.log",
+    "fileType": "log",
+    "contentType": "text/plain",
+    "isReadable": true,
+    "requestId": "123e4567-e89b-12d3-a456-426614174000"
+  }
+}
+```
+
+---
+
+#### 📊 **Obtener estadísticas**
+
+| **Campo**       | **Valor**                                                      |
+| --------------- | -------------------------------------------------------------- |
+| **Endpoint**    | `POST /logging/stats`                                          |
+| **Descripción** | Devuelve estadísticas del archivo (tamaño, fechas, estrategia) |
+
+**Ejemplo de respuesta:**
+
+```json
+{
+  "status": {
+    "statusCode": 200,
+    "statusDescription": "Operación completada con éxito."
+  },
+  "data": {
+    "exists": true,
+    "fileType": "csv",
+    "sizeBytes": 1048576,
+    "sizeMB": 1.0,
+    "lastModified": "2024-07-11T16:30:00.000Z",
+    "createdAt": "2024-07-11T08:00:00.000Z",
+    "fileName": "user-analytics-2024-07-11.csv",
+    "strategy": "CsvLogStrategy",
+    "supportsAppend": true,
+    "requestId": "123e4567-e89b-12d3-a456-426614174000"
+  }
+}
+```
+
+---
+
+#### 📑 **Listar formatos soportados**
+
+| **Campo**       | **Valor**                                                 |
+| --------------- | --------------------------------------------------------- |
+| **Endpoint**    | `GET /logging/formats`                                    |
+| **Descripción** | Devuelve la lista de formatos y casos de uso recomendados |
+
+**Ejemplo de respuesta:**
+
+```json
+{
+  "status": {
+    "statusCode": 200,
+    "statusDescription": "Operación completada con éxito."
+  },
+  "data": {
+    "supportedFormats": [
+      {
+        "fileType": "log",
+        "extension": ".log",
+        "supportsAppend": true,
+        "description": "Traditional log format with structured text entries",
+        "strategy": "TraditionalLogStrategy",
+        "useCases": ["System logs", "Application debugging", "Audit trails"]
+      },
+      {
+        "fileType": "csv",
+        "extension": ".csv",
+        "supportsAppend": true,
+        "description": "Comma-separated values format for data analysis",
+        "strategy": "CsvLogStrategy",
+        "useCases": ["Data analytics", "Reporting", "Data science workflows"]
+      },
+      {
+        "fileType": "xlsx",
+        "extension": ".xlsx",
+        "supportsAppend": false,
+        "description": "Excel spreadsheet format for rich data presentation",
+        "strategy": "XlsxLogStrategy",
+        "useCases": [
+          "Executive reports",
+          "Business intelligence",
+          "Formatted presentations"
+        ]
+      }
+    ],
+    "architecture": "Strategy Pattern with Factory",
+    "version": "2.0",
+    "requestId": "123e4567-e89b-12d3-a456-426614174000"
+  }
+}
+```
+
+---
+
+#### ✅ **Casos de uso recomendados**
+
+- **LOG**: Auditoría, debugging, trazas de errores, monitoreo en vivo
+- **CSV**: Análisis de datos, reporting, data science, BI básico
+- **XLSX**: Reportes ejecutivos, dashboards, presentaciones de negocio
 
 ## **Validaciones y Restricciones**
 

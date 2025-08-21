@@ -2,6 +2,20 @@ import { applyDecorators, HttpStatus } from '@nestjs/common';
 import { ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { ApiSuccessResponse } from './swagger-responses.decorator';
 
+/**
+ * Documenta las posibles respuestas de error comunes en operaciones de logging.
+ *
+ * Incluye:
+ * - **400 BAD_REQUEST** → Errores de validación o configuración (nivel inválido, nombre de archivo faltante, configuración incorrecta).
+ * - **500 INTERNAL_SERVER_ERROR** → Errores internos al acceder al contenedor de logs o generar tokens SAS.
+ *
+ * @example
+ * ```ts
+ * @Post('append')
+ * @ApiLoggingErrorResponses()
+ * async appendLog() {}
+ * ```
+ */
 export function ApiLoggingErrorResponses() {
   return applyDecorators(
     ApiResponse({
@@ -70,6 +84,19 @@ export function ApiLoggingErrorResponses() {
   );
 }
 
+/**
+ * Documenta la operación de agregar una entrada de log individual a un append blob.
+ *
+ * - Crea el archivo si no existe.
+ * - Útil para registrar eventos puntuales: transacciones, acciones de usuario, errores específicos.
+ *
+ * @example
+ * ```ts
+ * @Post('append')
+ * @ApiAppendLogOperation()
+ * async appendLog(@Body() dto: AppendLogDto) {}
+ * ```
+ */
 export function ApiAppendLogOperation() {
   return applyDecorators(
     ApiOperation({
@@ -96,6 +123,20 @@ export function ApiAppendLogOperation() {
   );
 }
 
+/**
+ * Documenta la operación de agregar múltiples entradas de log en lote.
+ *
+ * - Inserta todas las entradas en una sola operación.
+ * - Ideal para flujos completos de transacciones o procesos batch.
+ * - Garantiza atomicidad de escritura.
+ *
+ * @example
+ * ```ts
+ * @Post('bulk')
+ * @ApiBulkLogOperation()
+ * async bulkLogs(@Body() dto: BulkLogDto) {}
+ * ```
+ */
 export function ApiBulkLogOperation() {
   return applyDecorators(
     ApiOperation({
@@ -123,6 +164,20 @@ export function ApiBulkLogOperation() {
   );
 }
 
+/**
+ * Documenta la operación de lectura completa de un archivo de log.
+ *
+ * - Devuelve todo el contenido del archivo.
+ * - Útil para auditorías, debugging o análisis post-mortem.
+ * ⚠️ Recomendado usar con precaución en archivos grandes.
+ *
+ * @example
+ * ```ts
+ * @Get('read')
+ * @ApiReadLogOperation()
+ * async readLog(@Query('fileName') fileName: string) {}
+ * ```
+ */
 export function ApiReadLogOperation() {
   return applyDecorators(
     ApiOperation({
@@ -150,6 +205,21 @@ export function ApiReadLogOperation() {
   );
 }
 
+/**
+ * Documenta la operación de consulta de estadísticas de un archivo de log.
+ *
+ * Devuelve:
+ * - Tamaño en bytes y MB.
+ * - Fechas de creación y última modificación.
+ * - Estado de existencia del archivo.
+ *
+ * @example
+ * ```ts
+ * @Get('stats')
+ * @ApiLogStatsOperation()
+ * async getLogStats(@Query('fileName') fileName: string) {}
+ * ```
+ */
 export function ApiLogStatsOperation() {
   return applyDecorators(
     ApiOperation({
@@ -178,20 +248,4 @@ export function ApiLogStatsOperation() {
     }),
     ApiLoggingErrorResponses(),
   );
-}
-
-// Función helper para descripciones de niveles de log
-function getLogLevelDescription(level: string): string {
-  const descriptions = {
-    DEBUG:
-      'Para información detallada de debugging y desarrollo. Solo usar en entornos de desarrollo.',
-    INFO: 'Para operaciones normales y exitosas. El nivel estándar para operaciones de negocio.',
-    WARN: 'Para situaciones que requieren atención pero no son errores críticos.',
-    ERROR:
-      'Para errores que afectan operaciones específicas pero no el sistema completo.',
-    FATAL:
-      'Para errores críticos que pueden afectar la disponibilidad del sistema completo.',
-  };
-
-  return descriptions[level] || 'Nivel de log personalizado.';
 }

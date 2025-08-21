@@ -6,6 +6,21 @@ import { createAppModule } from './app.module';
 import { AppConfigService } from './config/config.service';
 import { HttpExceptionFilter } from './shared/filters/http-exception.filter';
 
+/**
+ * Punto de entrada principal de la aplicación.
+ *
+ * Configuraciones principales:
+ * - Inicializa el módulo raíz (`AppModule`).
+ * - Habilita CORS.
+ * - Configura `body-parser` con un límite de 10MB para JSON y URL-encoded.
+ * - Agrega cabecera `x-forwarded-for` cuando no está presente.
+ * - Aplica un filtro global de excepciones (`HttpExceptionFilter`).
+ * - Configura Swagger con validación de headers obligatorios para pruebas.
+ * - Expone la documentación en:
+ *    - JSON: `/service/pendig/transversales/sas/v1/swagger.json`
+ *    - UI:   `/service/pendig/transversales/sas/v1/swagger-ui`
+ */
+
 async function bootstrap() {
   const AppModule = createAppModule();
   const app = await NestFactory.create(AppModule);

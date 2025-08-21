@@ -12,10 +12,44 @@ import { BadRequestException } from '@src/shared/exceptions/bad-request.exceptio
 import { Request } from 'express';
 import { SasService } from '../services/sas.service';
 
+/**
+ * @fileoverview
+ * Controller HTTP para **generación de SAS** (Shared Access Signatures) en Azure Blob Storage.
+ *
+ * Endpoints:
+ * - `POST /generate-sas-url`    → Genera SAS **para un blob** a partir de su URL (permiso `r`, opcional IP).
+ * - `POST /generate-sas-token`  → Genera SAS **parametrizable** (contenedor o blob, permisos, expiración, IP).
+ *
+ * Validaciones:
+ * - URL de blob debe iniciar con `https://`.
+ * - La IP (si se detecta/recibe) debe ser válida (IPv4/IPv6).
+ *
+ * @module sas/controllers/sas.controller
+ */
 @Controller()
 export class SasController {
+  /**
+   * @param {SasService} sasService - Servicio de negocio para crear SAS.
+   */
   constructor(private readonly sasService: SasService) {}
 
+  /**
+   * Genera una **URL con SAS Token** para un **blob específico** usando su URL pública.
+   * - Usa permiso `r` (lectura).
+   * - Puede restringirse por IP (header `x-forwarded-for` o `socket.remoteAddress`).
+   *
+   * @route POST /generate-sas-url
+   * @param {string} url - URL absoluta del blob (`https://{account}.blob.core.windows.net/{container}/{blob}`).
+   * @param {Request} req - Request para extraer la IP del cliente.
+   * @returns Objeto con `sasUrl`, `sasToken`, `permissions`, `expiresOn`, `containerName`, `blobName`, `requestId`.
+   * @throws {BadRequestException}
+   *  - `URL_INVALID` si `url` no empieza por `https://`.
+   *  - `IP_INVALID` si la IP detectada/provista no es válida.
+   *
+   * @example
+   * POST /generate-sas-url
+   * { "url": "https://myacc.blob.core.windows.net/uploads/file.pdf" }
+   */
   @Post('/generate-sas-url')
   @ApiOperation({
     summary: 'Genera una URL con SAS Token',
@@ -94,6 +128,29 @@ export class SasController {
     };
   }
 
+  /**
+   * Genera un **SAS Token parametrizable**:
+   * - Nivel **contenedor** o **blob** (`fileName` opcional).
+   * - **Permisos** (p. ej. `r`, `w`, `c`, `a`, etc.).
+   * - **Expiración** en minutos.
+   * - **Restricción por IP** (DTO o IP detectada).
+   *
+   * @route POST /generate-sas-token
+   * @param {GenerateSasTokenDto} dto - Parámetros de generación (contenedor, blob, permisos, expiración, IP).
+   * @param {Request} req - Request para fallback de IP si no viene en DTO.
+   * @returns Objeto con `sasToken`, `sasUrl`, `permissions`, `expiresOn`, `containerName`, `blobName?`, `requestId`.
+   * @throws {BadRequestException}
+   *  - `IP_INVALID` si la IP provista/detectada no es válida.
+   *
+   * @example
+   * POST /generate-sas-token
+   * {
+   *   "containerName": "uploads",
+   *   "fileName": "report.csv",
+   *   "permissions": ["r", "w"],
+   *   "expirationMinutes": 60
+   * }
+   */
   @Post('/generate-sas-token')
   @ApiOperation({
     summary: 'Genera un SAS Token con parámetros específicos',

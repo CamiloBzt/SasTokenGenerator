@@ -1,6 +1,17 @@
 import { applyDecorators, HttpStatus } from '@nestjs/common';
 import { ApiOperation, ApiResponse } from '@nestjs/swagger';
 
+/**
+ * Documenta una respuesta exitosa estándar (HTTP 200).
+ *
+ * @param description Descripción de la operación exitosa.
+ * @param example Ejemplo de objeto de respuesta devuelto.
+ *
+ * @example
+ * ```ts
+ * @ApiSuccessResponse('Archivo subido exitosamente', { url: '...' })
+ * ```
+ */
 export function ApiSuccessResponse(description: string, example: any) {
   return applyDecorators(
     ApiResponse({
@@ -11,6 +22,19 @@ export function ApiSuccessResponse(description: string, example: any) {
   );
 }
 
+/**
+ * Documenta respuestas de error comunes en operaciones de blobs.
+ *
+ * Incluye:
+ * - **400 BAD_REQUEST** → Cuando la ruta de origen y destino son iguales.
+ * - **206 PARTIAL_CONTENT** → Cuando el archivo fuente no existe.
+ *
+ * @example
+ * ```ts
+ * @ApiBlobOperationErrorResponses()
+ * async moveBlob() {}
+ * ```
+ */
 export function ApiBlobOperationErrorResponses() {
   return applyDecorators(
     ApiResponse({
@@ -41,6 +65,22 @@ export function ApiBlobOperationErrorResponses() {
   );
 }
 
+/**
+ * Documenta errores de validación en archivos durante operaciones de carga.
+ *
+ * Casos:
+ * - Archivo demasiado grande.
+ * - Extensión del archivo no coincide con la del blob.
+ * - Tipo MIME no coincide con la extensión.
+ *
+ * @param maxSizeMB Tamaño máximo permitido en MB.
+ *
+ * @example
+ * ```ts
+ * @ApiFileValidationErrorResponses(10)
+ * async uploadFile() {}
+ * ```
+ */
 export function ApiFileValidationErrorResponses(maxSizeMB: number) {
   return applyDecorators(
     ApiResponse({
@@ -83,6 +123,19 @@ export function ApiFileValidationErrorResponses(maxSizeMB: number) {
   );
 }
 
+/**
+ * Documenta la operación de mover un blob.
+ *
+ * - Copia un archivo de origen a destino y luego elimina el original.
+ * - Sobrescribe el destino si ya existe.
+ *
+ * @example
+ * ```ts
+ * @Post('move')
+ * @ApiMoveBlobOperation()
+ * async moveBlob(@Body() dto: MoveBlobDto) {}
+ * ```
+ */
 export function ApiMoveBlobOperation() {
   return applyDecorators(
     ApiOperation({
@@ -107,6 +160,19 @@ export function ApiMoveBlobOperation() {
   );
 }
 
+/**
+ * Documenta la operación de copiar un blob.
+ *
+ * - Copia un archivo de origen a destino sin eliminar el original.
+ * - Sobrescribe el destino si ya existe.
+ *
+ * @example
+ * ```ts
+ * @Post('copy')
+ * @ApiCopyBlobOperation()
+ * async copyBlob(@Body() dto: CopyBlobDto) {}
+ * ```
+ */
 export function ApiCopyBlobOperation() {
   return applyDecorators(
     ApiOperation({
@@ -131,6 +197,27 @@ export function ApiCopyBlobOperation() {
   );
 }
 
+/**
+ * Documenta la operación de subida de un blob.
+ *
+ * Tipos soportados:
+ * - **multipart/form-data**
+ * - **Base64**
+ *
+ * Valida:
+ * - Tamaño máximo permitido.
+ * - Coincidencia de extensión o MIME según el tipo de subida.
+ *
+ * @param type Tipo de carga (`multipart` | `base64`).
+ * @param maxSizeMB Tamaño máximo permitido en MB.
+ *
+ * @example
+ * ```ts
+ * @Post('upload')
+ * @ApiUploadOperation('multipart', 20)
+ * async uploadFile() {}
+ * ```
+ */
 export function ApiUploadOperation(
   type: 'multipart' | 'base64',
   maxSizeMB: number,
@@ -169,6 +256,22 @@ export function ApiUploadOperation(
   );
 }
 
+/**
+ * Documenta la operación de descarga de un blob.
+ *
+ * Modos:
+ * - **binary** → devuelve datos binarios.
+ * - **base64** → devuelve el archivo codificado en Base64.
+ *
+ * @param type Tipo de descarga (`binary` | `base64`).
+ *
+ * @example
+ * ```ts
+ * @Get('download')
+ * @ApiDownloadOperation('base64')
+ * async downloadFile() {}
+ * ```
+ */
 export function ApiDownloadOperation(type: 'binary' | 'base64') {
   const isBinary = type === 'binary';
 
@@ -202,6 +305,20 @@ export function ApiDownloadOperation(type: 'binary' | 'base64') {
   );
 }
 
+/**
+ * Documenta la operación de exponer un archivo privado públicamente.
+ *
+ * - Copia el archivo del contenedor privado al público.
+ * - Genera un SAS token con permisos limitados y expiración automática.
+ * - Opcionalmente puede devolver el archivo en Base64.
+ *
+ * @example
+ * ```ts
+ * @Post('expose')
+ * @ApiExposePublicBlobOperation()
+ * async exposeBlob() {}
+ * ```
+ */
 export function ApiExposePublicBlobOperation() {
   return applyDecorators(
     ApiOperation({
@@ -237,6 +354,19 @@ export function ApiExposePublicBlobOperation() {
   );
 }
 
+/**
+ * Documenta la operación de listar archivos en el contenedor público.
+ *
+ * - Devuelve lista de archivos con URL pública, SAS individual y metadatos.
+ * - Permite filtrar por directorio.
+ *
+ * @example
+ * ```ts
+ * @Get('list-public')
+ * @ApiListPublicBlobsOperation()
+ * async listPublicBlobs() {}
+ * ```
+ */
 export function ApiListPublicBlobsOperation() {
   return applyDecorators(
     ApiOperation({

@@ -24,14 +24,40 @@ import { v4 as uuidv4 } from 'uuid';
 import { SasService } from '../sas.service';
 import { PrivateBlobService } from './private-blob.service';
 
+/**
+ * @fileoverview
+ * Servicio para **exponer** blobs privados en un **store público** (otra cuenta/contenedor)
+ * y para **listar** blobs del store público. Ofrece dos estrategias:
+ *
+ * - **Copia directa (direct copy)**: `syncCopyFromURL` desde el blob privado al público.
+ * - **Descargar y subir (download-upload)**: descarga del privado y sube al público.
+ *
+ * Seguridad:
+ * - Genera SAS temporales y de **mínimos privilegios** para cada operación.
+ * - Opcionalmente reemplaza el dominio de Azure por un **custom domain** público.
+ *
+ * @module sas/services/blob-storage/public-blob.service
+ */
 @Injectable()
 export class PublicBlobService {
+  /**
+   * @param {ConfigService} configService - Configuración de entorno (connection strings/nombres).
+   * @param {SasService} sasService - Servicio generador de SAS tokens.
+   * @param {PrivateBlobService} privateBlobService - Acceso al store privado (descargas, etc.).
+   */
   constructor(
     private readonly configService: ConfigService,
     private readonly sasService: SasService,
     private readonly privateBlobService: PrivateBlobService,
   ) {}
 
+  /**
+   * Construye `{directory}/{blobName}` si `directory` viene informado.
+   *
+   * @param {string | undefined} directory - Carpeta lógica opcional.
+   * @param {string} blobName - Nombre del blob (con extensión).
+   * @returns {string} Ruta completa.
+   */
   private buildFullBlobPath(
     directory: string | undefined,
     blobName: string,
@@ -45,6 +71,13 @@ export class PublicBlobService {
     return blobName;
   }
 
+  /**
+   * Reemplaza `*.blob.core.windows.net` por un **custom domain** si está configurado.
+   *
+   * @param {string} originalUrl - URL SAS generada.
+   * @param {string} accountName - Nombre de cuenta de Azure Storage.
+   * @returns {string} URL con dominio personalizado (si aplica) o la original.
+   */
   private replaceWithCustomDomain(
     originalUrl: string,
     accountName: string,
@@ -61,6 +94,12 @@ export class PublicBlobService {
     return originalUrl.replace(azureDomain, customDomain);
   }
 
+  /**
+   * Extrae `AccountName` desde un **connection string**.
+   *
+   * @param {string} connectionString - Connection string del store público.
+   * @returns {string|null} Account name o `null` si no pudo extraerse.
+   */
   private extractAccountNameFromConnectionString(
     connectionString: string,
   ): string | null {
@@ -77,6 +116,15 @@ export class PublicBlobService {
     }
   }
 
+  /**
+   * Obtiene y valida la configuración del **store público**.
+   *
+   * @returns {PublicStoreConfig} Config consolidada (conn string, contenedor y accountName).
+   * @throws {BadRequestException}
+   *  - `PUBLIC_CONNECTION_STRING_MISSING`
+   *  - `PUBLIC_CONTAINER_NAME_MISSING`
+   *  - `PUBLIC_STORE_ACCESS_ERROR` (si no se extrae account name)
+   */
   private getPublicStoreConfig(): PublicStoreConfig {
     const publicConnectionString = this.configService.get<string>(
       'azure.publicConnectionString',
@@ -112,6 +160,15 @@ export class PublicBlobService {
     };
   }
 
+  /**
+   * Genera un **SAS público** (solo lectura) para el `fullBlobPath` y
+   * reemplaza el dominio por el **custom domain** si está configurado.
+   *
+   * @param {PublicStoreConfig} config - Config del store público.
+   * @param {string} fullBlobPath - Ruta completa destino en el store público.
+   * @param {number} expirationMinutes - Minutos de validez del token.
+   * @returns {Promise<{ sasToken: string; sasUrl: string; permissions: string; expiresOn: Date }>}
+   */
   private async generatePublicSasToken(
     config: PublicStoreConfig,
     fullBlobPath: string,
@@ -144,6 +201,16 @@ export class PublicBlobService {
     };
   }
 
+  /**
+   * Construye el resultado estandarizado de **exposición pública**.
+   *
+   * @param {ExposePublicBlobParams} params - Parámetros de exposición recibidos.
+   * @param {string} fullBlobPath - Ruta completa en el público.
+   * @param {{ sasToken: string; sasUrl: string; permissions: string; expiresOn: Date }} sasData - Datos SAS finales.
+   * @param {BlobContentInfo} blobInfo - Info de contenido (tipo/tamaño/bytes).
+   * @param {string} [base64Data] - Data Base64 si fue solicitada.
+   * @returns {ExposePublicBlobResult}
+   */
   private buildExposeResult(
     params: ExposePublicBlobParams,
     fullBlobPath: string,
@@ -176,6 +243,14 @@ export class PublicBlobService {
     return result;
   }
 
+  /**
+   * Intenta **limpiar** el blob destino en el público, probando Block y Append blob.
+   * (Best-effort: si falla un tipo, intenta el otro).
+   *
+   * @param {PublicStoreConfig} config
+   * @param {string} fullBlobPath
+   * @returns {Promise<void>}
+   */
   private async cleanupDestinationBlob(
     config: PublicStoreConfig,
     fullBlobPath: string,
@@ -221,6 +296,14 @@ export class PublicBlobService {
     }
   }
 
+  /**
+   * Estrategia **download-upload**: descarga del privado y sube al público como Block Blob.
+   *
+   * @param {ExposePublicBlobParams} params
+   * @param {PublicStoreConfig} config
+   * @param {string} fullBlobPath
+   * @returns {Promise<{ blobInfo: BlobContentInfo; base64Data?: string }>}
+   */
   private async exposePublicBlobByDownloadUpload(
     params: ExposePublicBlobParams,
     config: PublicStoreConfig,
@@ -230,7 +313,6 @@ export class PublicBlobService {
     await this.cleanupDestinationBlob(config, fullBlobPath);
 
     // 2. Descargar el archivo del store privado
-
     const privateDownloadResult = await this.privateBlobService.downloadBlob(
       params.privateContainerName,
       params.directory,
@@ -286,6 +368,17 @@ export class PublicBlobService {
     return { blobInfo, base64Data };
   }
 
+  /**
+   * Estrategia **copia directa**: `syncCopyFromURL` del blob privado al público.
+   *
+   * @param {ExposePublicBlobParams} params
+   * @param {PublicStoreConfig} config
+   * @param {string} fullBlobPath
+   * @returns {Promise<{ blobInfo: BlobContentInfo; base64Data?: string }>}
+   * @throws {BusinessErrorException|InternalServerErrorException}
+   *  - `BLOB_NOT_FOUND` si el blob fuente no existe.
+   *  - Error genérico si `copyStatus` no es `success`.
+   */
   private async exposePublicBlobByDirectCopy(
     params: ExposePublicBlobParams,
     config: PublicStoreConfig,
@@ -373,6 +466,12 @@ export class PublicBlobService {
     return { blobInfo, base64Data };
   }
 
+  /**
+   * Mapeo y relanzamiento de errores **homogéneo** para exposición pública.
+   *
+   * @param {any} error
+   * @throws {BadRequestException|BusinessErrorException|InternalServerErrorException}
+   */
   private handleExposePublicError(error: any): never {
     // Si ya es una excepción conocida, relanzarla
     if (
@@ -406,6 +505,14 @@ export class PublicBlobService {
     );
   }
 
+  /**
+   * Expone un blob del **store privado** en el **store público**, generando la URL SAS final.
+   *
+   * @param {ExposePublicBlobParams} params - Parámetros del blob privado y opciones (expiración, base64).
+   * @param {boolean} [useDirectCopy=true] - `true` usa **copia directa**, `false` usa **download-upload**.
+   * @returns {Promise<ExposePublicBlobResult>} Resultado con `sasUrl`, `contentType`, `size`, etc.
+   * @throws {BadRequestException|BusinessErrorException|InternalServerErrorException}
+   */
   async exposePublicBlob(
     params: ExposePublicBlobParams,
     useDirectCopy: boolean = true,
@@ -450,6 +557,12 @@ export class PublicBlobService {
     }
   }
 
+  /**
+   * Crea un `ContainerClient` para el **store público** usando SAS de `LIST`.
+   *
+   * @param {PublicStoreConfig} config
+   * @returns {Promise<ContainerClient>}
+   */
   private async createPublicContainerClient(
     config: PublicStoreConfig,
   ): Promise<ContainerClient> {
@@ -467,6 +580,16 @@ export class PublicBlobService {
     return new ContainerClient(`${containerUrl}?${publicSasData.sasToken}`);
   }
 
+  /**
+   * Implementación genérica para **listar blobs** usando un `ContainerClient` ya autenticado.
+   * Enriquece elementos con `BlobInfo` y agrega totales (tamaño y cantidad).
+   *
+   * @param {ContainerClient} containerClient - Cliente del contenedor público (con SAS embebido).
+   * @param {string} containerName - Nombre del contenedor final a reportar.
+   * @param {string} [directory] - Prefijo opcional (carpeta lógica).
+   * @param {string} [publicContainerName] - Alias para reportar en respuesta (si difiere).
+   * @returns {Promise<BlobListResponse>}
+   */
   private async listBlobsGeneric<T extends BlobInfo>(
     containerClient: ContainerClient,
     containerName: string,
@@ -502,6 +625,13 @@ export class PublicBlobService {
     return baseResponse;
   }
 
+  /**
+   * Lista blobs del **store público** (opcionalmente filtrando por `directory`).
+   *
+   * @param {string} [directory] - Prefijo/carpeta lógica a listar.
+   * @returns {Promise<BlobListResponse>} Resumen con blobs, totales y `requestId`.
+   * @throws {BadRequestException|BusinessErrorException|InternalServerErrorException}
+   */
   async listPublicBlobs(directory?: string): Promise<BlobListResponse> {
     try {
       // 1. Obtener y validar configuración del store público

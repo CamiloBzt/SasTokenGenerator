@@ -1,3 +1,6 @@
+/**
+ * Mensajes de error comunes en operaciones con Azure Blob Storage.
+ */
 export enum ErrorMessages {
   ENV_MISSING = 'Faltan variables de entorno necesarias para autenticarse con Azure.',
   URL_INVALID = 'URL inválida.',

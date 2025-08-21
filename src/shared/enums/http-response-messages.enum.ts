@@ -1,3 +1,6 @@
+/**
+ * Mensajes de respuesta estándar para operaciones HTTP.
+ */
 export enum HttpResponseMessages {
   OK = 'Operación completada con éxito.',
   CREATED = 'Recurso creado exitosamente.',

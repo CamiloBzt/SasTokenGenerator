@@ -13,13 +13,45 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 import { SasService } from '../sas.service';
 
+/**
+ * @fileoverview
+ * Servicio para **operaciones privadas** sobre Azure Blob Storage (subir, descargar,
+ * listar y eliminar blobs), usando SAS tokens *ad hoc* generados vía `SasService`.
+ *
+ * Características:
+ * - Soporta **upload** desde `Multer` (buffer) y **upload Base64**.
+ * - **Download** como `Buffer` o como **Base64** (con metadata `contentType`).
+ * - **Delete** seguro con manejo de errores de negocio y Azure.
+ * - **List** con enriquecimiento de items (`BlobInfo`) y totales de tamaño.
+ *
+ * Seguridad:
+ * - Genera SAS tokens con permisos mínimos necesarios para cada operación
+ *   (`READ`, `WRITE`, `CREATE`, `DELETE`, `LIST`), con expiración corta.
+ *
+ * @module sas/services/blob-storage/private-blob.service
+ */
 @Injectable()
 export class PrivateBlobService {
+  /**
+   * @param {ConfigService} configService - Servicio de configuración (cuenta de storage).
+   * @param {SasService} sasService - Servicio para generación de SAS tokens.
+   */
   constructor(
     private readonly configService: ConfigService,
     private readonly sasService: SasService,
   ) {}
 
+  /**
+   * Construye la **ruta completa** `{directory}/{blobName}` si hay directorio.
+   *
+   * @param {string | undefined} directory - Carpeta lógica (opcional).
+   * @param {string} blobName - Nombre del blob (con extensión).
+   * @returns {string} Ruta completa del blob.
+   *
+   * @example
+   * buildFullBlobPath('invoices/2025', 'report.pdf'); // 'invoices/2025/report.pdf'
+   * buildFullBlobPath(undefined, 'logo.png');         // 'logo.png'
+   */
   private buildFullBlobPath(
     directory: string | undefined,
     blobName: string,
@@ -33,6 +65,15 @@ export class PrivateBlobService {
     return blobName;
   }
 
+  /**
+   * Valida presencia de **contenido Base64** y **MIME type**.
+   *
+   * @param {string} fileBase64 - Contenido en Base64 **sin encabezado** (solo data).
+   * @param {string} mimeType - Tipo MIME declarado (ej. `image/png`).
+   * @throws {BadRequestException}
+   *  - `FILE_BASE64_MISSING` si no hay contenido.
+   *  - `MIME_TYPE_MISSING` si no se proporciona el MIME.
+   */
   private validateBase64AndMimeType(
     fileBase64: string,
     mimeType: string,
@@ -45,6 +86,22 @@ export class PrivateBlobService {
     }
   }
 
+  /**
+   * Sube un **blob** usando un archivo recibido por **Multer** (buffer).
+   *
+   * Permisos SAS: `WRITE`, `CREATE`.
+   *
+   * @param {string} containerName - Contenedor destino.
+   * @param {string | undefined} directory - Directorio lógico (opcional).
+   * @param {string} blobName - Nombre del blob (incluye extensión).
+   * @param {Express.Multer.File} file - Archivo Multer (usa `file.buffer` y `file.mimetype`).
+   * @returns {Promise<{ blobUrl: string; containerName: string; blobName: string; fullPath: string; requestId: string; }>}
+   * @throws {BadRequestException|InternalServerErrorException}
+   *  - `FILE_MISSING` si no se recibe el buffer.
+   *  - `CONTAINER_NOT_FOUND` si el contenedor no existe.
+   *  - `SAS_PERMISSION` si el token no tiene permisos/credenciales.
+   *  - `SAS_GENERATION` para fallos al generar/usar SAS.
+   */
   async uploadBlob(
     containerName: string,
     directory: string | undefined,
@@ -115,6 +172,21 @@ export class PrivateBlobService {
     }
   }
 
+  /**
+   * Sube un **blob** a partir de **contenido Base64**.
+   *
+   * Permisos SAS: `WRITE`, `CREATE`.
+   *
+   * @param {string} containerName - Contenedor destino.
+   * @param {string | undefined} directory - Directorio lógico (opcional).
+   * @param {string} blobName - Nombre del blob (incluye extensión).
+   * @param {string} fileBase64 - Data en Base64 (sin prefijo `data:`).
+   * @param {string} mimeType - Tipo MIME declarado (ej. `image/png`).
+   * @returns {Promise<{ blobUrl: string; containerName: string; blobName: string; fullPath: string; requestId: string; }>}
+   * @throws {BadRequestException|InternalServerErrorException}
+   *  - `FILE_BASE64_MISSING`, `MIME_TYPE_MISSING`, `BASE64_EMPTY_BUFFER`, `BASE64_CONTENT_INVALID`.
+   *  - `CONTAINER_NOT_FOUND`, `SAS_PERMISSION`, `SAS_GENERATION`.
+   */
   async uploadBlobBase64(
     containerName: string,
     directory: string | undefined,
@@ -202,6 +274,19 @@ export class PrivateBlobService {
     }
   }
 
+  /**
+   * Descarga un **blob** y retorna su contenido como **Buffer**, junto con el `contentType`.
+   *
+   * Permisos SAS: `READ`.
+   *
+   * @param {string} containerName - Contenedor origen.
+   * @param {string | undefined} directory - Directorio lógico (opcional).
+   * @param {string} blobName - Nombre del blob.
+   * @returns {Promise<{ data: Buffer; contentType: string; containerName: string; blobName: string; fullPath: string; requestId: string; }>}
+   * @throws {BusinessErrorException|InternalServerErrorException}
+   *  - `BLOB_NOT_FOUND` si no existe.
+   *  - `SAS_PERMISSION` o `SAS_GENERATION` para errores de acceso.
+   */
   async downloadBlob(
     containerName: string,
     directory: string | undefined,
@@ -262,6 +347,18 @@ export class PrivateBlobService {
     }
   }
 
+  /**
+   * Descarga un **blob** y retorna su contenido en **Base64**, además de tamaño y `contentType`.
+   *
+   * Permisos SAS: `READ`.
+   *
+   * @param {string} containerName - Contenedor origen.
+   * @param {string | undefined} directory - Directorio lógico (opcional).
+   * @param {string} blobName - Nombre del blob.
+   * @returns {Promise<{ fileBase64: string; contentType: string; containerName: string; blobName: string; fullPath: string; size: number; requestId: string; }>}
+   * @throws {BusinessErrorException|InternalServerErrorException}
+   *  - `BLOB_NOT_FOUND`, `SAS_PERMISSION`, `SAS_GENERATION`.
+   */
   async downloadBlobBase64(
     containerName: string,
     directory: string | undefined,
@@ -327,6 +424,19 @@ export class PrivateBlobService {
     }
   }
 
+  /**
+   * Elimina un **blob** del contenedor.
+   *
+   * Permisos SAS: `DELETE`.
+   *
+   * @param {string} containerName - Contenedor origen.
+   * @param {string | undefined} directory - Directorio lógico (opcional).
+   * @param {string} blobName - Nombre del blob.
+   * @returns {Promise<{ containerName: string; blobName: string; fullPath: string; requestId: string; }>}
+   * @throws {BusinessErrorException|InternalServerErrorException}
+   *  - `BLOB_NOT_FOUND` si el blob no existe.
+   *  - `SAS_PERMISSION` o `SAS_GENERATION` para errores de acceso.
+   */
   async deleteBlob(
     containerName: string,
     directory: string | undefined,
@@ -391,6 +501,15 @@ export class PrivateBlobService {
     }
   }
 
+  /**
+   * Implementación genérica de **listado de blobs** (aplica filtro por `directory` si se indica)
+   * y **enriquece** cada item con `BlobInfo` (nombre, directorio, tamaño formateado, etc.).
+   *
+   * @param {ContainerClient} containerClient - Cliente de contenedor con SAS embebido.
+   * @param {string} containerName - Nombre del contenedor.
+   * @param {string} [directory] - Directorio lógico para `prefix`.
+   * @returns {Promise<BlobListResponse>} Resumen con blobs, totales y `requestId`.
+   */
   private async listBlobsGeneric<T extends BlobInfo>(
     containerClient: ContainerClient,
     containerName: string,
@@ -427,6 +546,18 @@ export class PrivateBlobService {
     return baseResponse;
   }
 
+  /**
+   * Lista blobs de un contenedor (opcionalmente filtrando por `directory` como `prefix`),
+   * devolviendo datos enriquecidos y totales.
+   *
+   * Permisos SAS: `LIST` (a nivel **contenedor**).
+   *
+   * @param {string} containerName - Contenedor a listar.
+   * @param {string} [directory] - Prefijo opcional (carpeta lógica).
+   * @returns {Promise<BlobListResponse>}
+   * @throws {BadRequestException|InternalServerErrorException}
+   *  - `CONTAINER_NOT_FOUND`, `SAS_PERMISSION`, `SAS_GENERATION`.
+   */
   async listBlobs(
     containerName: string,
     directory?: string,

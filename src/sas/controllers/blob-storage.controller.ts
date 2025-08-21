@@ -45,9 +45,21 @@ import { FileValidationService } from '../services/file-validation.service';
 
 @ApiTags('Blob Storage')
 @Controller('blob')
+/**
+ * Controlador HTTP para operaciones sobre Azure Blob Storage.
+ *
+ * Expone endpoints para:
+ * - Subir archivos (multipart y Base64)
+ * - Descargar archivos (binario y Base64)
+ * - Eliminar, listar, mover y copiar blobs
+ * - Exponer blobs de un store privado a uno público (con SAS)
+ *
+ * Valida tamaño, tipo MIME y extensiones antes de delegar en {@link BlobStorageService}.
+ */
 export class BlobStorageController {
-  // Configuración de límites de archivo
-  private readonly MAX_FILE_SIZE_MB = 6; // 6MB límite
+  /** Límite de tamaño por archivo (MB) para uploads. */
+  private readonly MAX_FILE_SIZE_MB = 6;
+  /** Límite de tamaño por archivo (bytes) para uploads. */
   private readonly MAX_FILE_SIZE_BYTES = this.MAX_FILE_SIZE_MB * 1024 * 1024;
 
   constructor(
@@ -55,8 +67,11 @@ export class BlobStorageController {
     private readonly fileValidationService: FileValidationService,
   ) {}
 
+  // ========= Validaciones internas =========
+
   /**
-   * Valida el tamaño del archivo multipart
+   * Valida tamaño del archivo multipart (buffer) contra el límite permitido.
+   * @throws {BadRequestException} Si el archivo falta o excede el tamaño permitido.
    */
   private validateMultipartFileSize(file: Express.Multer.File): void {
     if (!file || !file.buffer) {
@@ -72,14 +87,17 @@ export class BlobStorageController {
   }
 
   /**
-   * Valida el tamaño del archivo Base64
+   * Valida tamaño de archivo codificado en Base64 y retorna el tamaño calculado.
+   * @param fileBase64 Cadena Base64 (sin encabezados data URI).
+   * @returns Tamaño calculado en bytes.
+   * @throws {BadRequestException} Si falta contenido o excede el límite.
    */
   private validateBase64FileSize(fileBase64: string): number {
     if (!fileBase64 || fileBase64.trim() === '') {
       throw new BadRequestException(ErrorMessages.FILE_BASE64_MISSING);
     }
 
-    // Calcular el tamaño real del archivo desde Base64
+    // Estimación de tamaño: cada 4 chars ~ 3 bytes
     const fileSizeBytes = Math.ceil((fileBase64.length * 3) / 4);
     if (fileSizeBytes > this.MAX_FILE_SIZE_BYTES) {
       const fileSizeMB = (fileSizeBytes / 1024 / 1024).toFixed(2);
@@ -92,7 +110,8 @@ export class BlobStorageController {
   }
 
   /**
-   * Valida que el tipo MIME sea válido
+   * Verifica que el tipo MIME esté entre los permitidos.
+   * @throws {BadRequestException} Si el `mimeType` es vacío o no permitido.
    */
   private validateMimeType(mimeType: string): void {
     if (!mimeType || mimeType.trim() === '') {
@@ -126,7 +145,7 @@ export class BlobStorageController {
       'video/mp4',
       'video/avi',
       'video/quicktime',
-      // Archivos comprimidos
+      // Comprimidos
       'application/zip',
       'application/x-rar-compressed',
       'application/x-7z-compressed',
@@ -138,20 +157,31 @@ export class BlobStorageController {
 
     if (!allowedMimeTypes.includes(mimeType.toLowerCase())) {
       throw new BadRequestException(
-        `${ErrorMessages.MIME_TYPE_NOT_ALLOWED} Tipo recibido: ${mimeType}. Tipos permitidos: PDF, Word, Excel, PowerPoint, imágenes (JPEG, PNG, GIF), audio, video, archivos comprimidos, JSON, XML.`,
+        `${ErrorMessages.MIME_TYPE_NOT_ALLOWED} Tipo recibido: ${mimeType}. Tipos permitidos: PDF, Word, Excel, PowerPoint, imágenes (JPEG, PNG, GIF), audio, video, comprimidos, JSON, XML.`,
       );
     }
   }
+
+  // ========= Endpoints =========
 
   @Post('upload')
   @UseInterceptors(FileInterceptor('file'))
   @ApiUploadOperation('multipart', 6)
   @ApiConsumes('multipart/form-data')
   @ApiBody({
-    description: `Blob upload data (Max 6MB). La extensión del archivo original debe coincidir con la extensión en blobName.`,
+    description:
+      'Blob upload data (máx. 6MB). La extensión del archivo original debe coincidir con la extensión en blobName.',
     type: UploadBlobDto,
   })
   @HttpCode(HttpStatus.OK)
+  /**
+   * Sube un archivo mediante multipart/form-data.
+   *
+   * Valida tamaño, extensión y coherencia MIME/extension. Delegado a {@link BlobStorageService.uploadBlob}.
+   * @param file Archivo subido (campo `file`).
+   * @param uploadBlobDto Datos de destino (contenedor, directorio, nombre de blob).
+   * @returns Metadatos del blob creado (URL, rutas y requestId).
+   */
   async uploadBlob(
     @UploadedFile() file: Express.Multer.File,
     @Body() uploadBlobDto: UploadBlobDto,
@@ -165,10 +195,7 @@ export class BlobStorageController {
       requestId: string;
     };
   }> {
-    // Validar tamaño del archivo
     this.validateMultipartFileSize(file);
-
-    // Validar extensiones y compatibilidad
     this.fileValidationService.validateMultipartUpload(
       file,
       uploadBlobDto.blobName,
@@ -193,7 +220,8 @@ export class BlobStorageController {
   @Post('upload/base64')
   @ApiUploadOperation('base64', 6)
   @ApiBody({
-    description: `Base64 blob upload data (Max 6MB). El mimeType debe coincidir con la extensión en blobName.`,
+    description:
+      'Base64 blob upload (máx. 6MB). El mimeType debe coincidir con la extensión en blobName.',
     type: UploadBlobBase64Dto,
     examples: {
       pdfExample: {
@@ -218,6 +246,12 @@ export class BlobStorageController {
     },
   })
   @HttpCode(HttpStatus.OK)
+  /**
+   * Sube un archivo codificado en Base64.
+   *
+   * Valida tipo MIME, tamaño y coherencia MIME/extensión. Delegado a {@link BlobStorageService.uploadBlobBase64}.
+   * @param uploadBlobBase64Dto Parámetros de subida Base64 (contenedor, blob, directorio, base64, mimeType).
+   */
   async uploadBlobBase64(
     @Body() uploadBlobBase64Dto: UploadBlobBase64Dto,
   ): Promise<{
@@ -230,15 +264,9 @@ export class BlobStorageController {
       requestId: string;
     };
   }> {
-    // Validar tipo MIME
     this.validateMimeType(uploadBlobBase64Dto.mimeType);
+    this.validateBase64FileSize(uploadBlobBase64Dto.fileBase64);
 
-    // Validar tamaño del archivo Base64
-    const fileSizeBytes = this.validateBase64FileSize(
-      uploadBlobBase64Dto.fileBase64,
-    );
-
-    // Validar que el MIME type coincida con la extensión del blob
     this.fileValidationService.validateBase64Upload(
       uploadBlobBase64Dto.mimeType,
       uploadBlobBase64Dto.blobName,
@@ -264,7 +292,7 @@ export class BlobStorageController {
   @Post('download')
   @ApiDownloadOperation('binary')
   @ApiBody({
-    description: 'Download blob data',
+    description: 'Descarga binaria de un blob.',
     type: DownloadBlobDto,
     examples: {
       withDirectory: {
@@ -290,14 +318,17 @@ export class BlobStorageController {
     description: 'Blob downloaded successfully',
     content: {
       'application/octet-stream': {
-        schema: {
-          type: 'string',
-          format: 'binary',
-        },
+        schema: { type: 'string', format: 'binary' },
       },
     },
   })
   @HttpCode(HttpStatus.OK)
+  /**
+   * Descarga un blob y responde con contenido binario (stream).
+   *
+   * @param downloadBlobDto Ubicación del blob (contenedor/directorio/nombre).
+   * @param res Respuesta HTTP (se setean headers y se envía el binario).
+   */
   async downloadBlobPost(
     @Body() downloadBlobDto: DownloadBlobDto,
     @Res() res: Response,
@@ -314,14 +345,13 @@ export class BlobStorageController {
       `attachment; filename="${result.blobName}"`,
     );
     res.setHeader('Content-Length', result.data.length);
-
     res.send(result.data);
   }
 
   @Post('download/base64')
   @ApiDownloadOperation('base64')
   @ApiBody({
-    description: 'Download blob data for Base64 response',
+    description: 'Descarga un blob y retorna su contenido en Base64.',
     type: DownloadBlobBase64Dto,
     examples: {
       withDirectory: {
@@ -342,6 +372,12 @@ export class BlobStorageController {
     },
   })
   @HttpCode(HttpStatus.OK)
+  /**
+   * Descarga un blob y retorna su contenido codificado en Base64.
+   *
+   * @param downloadBlobBase64Dto Ubicación del blob.
+   * @returns Metadatos del blob y contenido en Base64.
+   */
   async downloadBlobBase64(
     @Body() downloadBlobBase64Dto: DownloadBlobBase64Dto,
   ): Promise<{
@@ -375,10 +411,10 @@ export class BlobStorageController {
   @ApiOperation({
     summary: 'Delete a blob',
     description:
-      'Delete a file from Azure Blob Storage from a specific directory',
+      'Elimina un blob del contenedor (opcionalmente en un directorio).',
   })
   @ApiBody({
-    description: 'Delete blob data',
+    description: 'Parámetros de eliminación',
     type: DeleteBlobDto,
     examples: {
       withDirectory: {
@@ -412,6 +448,12 @@ export class BlobStorageController {
     },
   })
   @HttpCode(HttpStatus.OK)
+  /**
+   * Elimina un blob existente.
+   *
+   * @param deleteBlobDto Ubicación del blob a eliminar.
+   * @returns Confirmación y metadatos del blob eliminado.
+   */
   async deleteBlobPost(@Body() deleteBlobDto: DeleteBlobDto): Promise<{
     status: { statusCode: number; statusDescription: string };
     data: {
@@ -433,10 +475,7 @@ export class BlobStorageController {
         statusCode: HttpStatus.OK,
         statusDescription: 'Operación completada con éxito.',
       },
-      data: {
-        message: 'Blob deleted successfully',
-        ...result,
-      },
+      data: { message: 'Blob deleted successfully', ...result },
     };
   }
 
@@ -444,11 +483,10 @@ export class BlobStorageController {
   @ApiOperation({
     summary: 'List blobs',
     description:
-      'List all blobs in a container or in a specific directory within a container',
+      'Lista blobs de un contenedor o de un directorio específico dentro del contenedor.',
   })
   @ApiBody({
-    description:
-      'List blobs data. If directory is provided, only blobs in that directory will be listed.',
+    description: 'Parámetros de listado',
     type: ListBlobsDto,
     examples: {
       listAllBlobs: {
@@ -486,6 +524,10 @@ export class BlobStorageController {
     },
   })
   @HttpCode(HttpStatus.OK)
+  /**
+   * Lista blobs de un contenedor, opcionalmente filtrando por un directorio/prefijo.
+   * @param listBlobsDto Contenedor y (opcional) directorio.
+   */
   async listBlobs(@Body() listBlobsDto: ListBlobsDto): Promise<{
     status: { statusCode: number; statusDescription: string };
     data: BlobListResponse;
@@ -507,7 +549,7 @@ export class BlobStorageController {
   @Post('move')
   @ApiMoveBlobOperation()
   @ApiBody({
-    description: 'Move blob data',
+    description: 'Parámetros para mover un blob',
     type: MoveBlobDto,
     examples: {
       moveToDirectory: {
@@ -537,6 +579,12 @@ export class BlobStorageController {
     },
   })
   @HttpCode(HttpStatus.OK)
+  /**
+   * Mueve un blob a otra ruta (posible renombrado).
+   *
+   * Implementado como copy + delete atómico en el backend.
+   * @param moveBlobDto Rutas de origen y destino.
+   */
   async moveBlobPost(@Body() moveBlobDto: MoveBlobDto): Promise<{
     status: { statusCode: number; statusDescription: string };
     data: {
@@ -565,7 +613,7 @@ export class BlobStorageController {
   @Post('copy')
   @ApiCopyBlobOperation()
   @ApiBody({
-    description: 'Copy blob data',
+    description: 'Parámetros para copiar un blob',
     type: CopyBlobDto,
     examples: {
       copyToBackup: {
@@ -595,6 +643,10 @@ export class BlobStorageController {
     },
   })
   @HttpCode(HttpStatus.OK)
+  /**
+   * Copia un blob a otra ruta (posible duplicado/renombrado).
+   * @param copyBlobDto Rutas de origen y destino.
+   */
   async copyBlobPost(@Body() copyBlobDto: CopyBlobDto): Promise<{
     status: { statusCode: number; statusDescription: string };
     data: {
@@ -623,8 +675,7 @@ export class BlobStorageController {
   @Post('expose-public')
   @ApiExposePublicBlobOperation()
   @ApiBody({
-    description:
-      'Datos del archivo a exponer públicamente con opción de método',
+    description: 'Exponer un blob privado en un store público (con SAS).',
     type: ExposePublicBlobDto,
     examples: {
       defaultDirectCopy: {
@@ -680,6 +731,15 @@ export class BlobStorageController {
     },
   })
   @HttpCode(HttpStatus.OK)
+  /**
+   * Expone un blob del store privado en un store público, generando una URL con SAS.
+   *
+   * Por defecto usa **copia directa** entre contenedores (más eficiente). Puede forzarse
+   * el modo **descarga/subida** si `useDirectCopy = false`.
+   *
+   * @param exposePublicBlobDto Parámetros de exposición pública (contenedor, blob, directorio, expiración, base64, estrategia).
+   * @returns Datos del SAS público y metadatos del blob expuesto.
+   */
   async exposePublicBlob(
     @Body() exposePublicBlobDto: ExposePublicBlobDto,
   ): Promise<{
@@ -717,17 +777,14 @@ export class BlobStorageController {
         statusCode: HttpStatus.OK,
         statusDescription: 'Operación completada con éxito.',
       },
-      data: {
-        ...result,
-        useDirectCopy,
-      },
+      data: { ...result, useDirectCopy },
     };
   }
 
   @Post('list-public')
   @ApiListPublicBlobsOperation()
   @ApiBody({
-    description: 'Parámetros para listar archivos del store público',
+    description: 'Listar blobs en el store público',
     type: ListPublicBlobsDto,
     examples: {
       listAll: {
@@ -749,6 +806,10 @@ export class BlobStorageController {
     },
   })
   @HttpCode(HttpStatus.OK)
+  /**
+   * Lista blobs del store público (opcionalmente filtrando por directorio/prefijo).
+   * @param listPublicBlobsDto Directorio opcional.
+   */
   async listPublicBlobs(
     @Body() listPublicBlobsDto: ListPublicBlobsDto,
   ): Promise<{

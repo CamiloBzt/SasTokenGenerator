@@ -7,10 +7,38 @@ import { BusinessErrorException } from '@src/shared/exceptions/business-error.ex
 import { v4 as uuidv4 } from 'uuid';
 import { SasService } from '../sas.service';
 
+/**
+ * @fileoverview
+ * Servicio para **operaciones entre blobs** dentro de un mismo contenedor:
+ * - **copy**: copia el blob de `source` a `destination` preservando metadatos.
+ * - **move**: copia y, si es exitoso, **elimina** el blob de origen.
+ *
+ * Seguridad:
+ * - Genera SAS ad-hoc con los **permisos mínimos** necesarios por operación:
+ *   - copy: `READ` en origen, `WRITE`+`CREATE` en destino.
+ *   - move: `READ`+`DELETE` en origen, `WRITE`+`CREATE` en destino.
+ *
+ * Manejo de errores:
+ * - Errores de negocio (no existe fuente) → `BusinessErrorException`.
+ * - Errores de permisos/credenciales → `InternalServerErrorException`.
+ * - Paths iguales → `BadRequestException`.
+ *
+ * @module sas/services/blob-storage/blob-operation.service
+ */
 @Injectable()
 export class BlobOperationService {
+  /**
+   * @param {SasService} sasService - Servicio para generación de SAS tokens.
+   */
   constructor(private readonly sasService: SasService) {}
 
+  /**
+   * Valida que las rutas **no sean idénticas**.
+   *
+   * @param {string} sourceBlobPath - Ruta del blob origen (puede incluir subdirectorios).
+   * @param {string} destinationBlobPath - Ruta del blob destino.
+   * @throws {BadRequestException} Si ambas rutas son iguales.
+   */
   private validateBlobPaths(
     sourceBlobPath: string,
     destinationBlobPath: string,
@@ -20,6 +48,15 @@ export class BlobOperationService {
     }
   }
 
+  /**
+   * Genera los **SAS tokens** requeridos para la operación.
+   *
+   * @param {string} containerName - Contenedor donde residen origen y destino.
+   * @param {string} sourceBlobPath - Blob origen.
+   * @param {string} destinationBlobPath - Blob destino.
+   * @param {'move'|'copy'} operation - Tipo de operación.
+   * @returns {Promise<{ sourceSasData: any; destinationSasData: any }>}
+   */
   private async generateBlobOperationTokens(
     containerName: string,
     sourceBlobPath: string,
@@ -52,6 +89,12 @@ export class BlobOperationService {
     return { sourceSasData, destinationSasData };
   }
 
+  /**
+   * Verifica que el **blob de origen exista**.
+   *
+   * @param {BlockBlobClient} sourceBlockBlobClient - Cliente del blob origen (con SAS).
+   * @throws {BusinessErrorException} Si el blob de origen no existe.
+   */
   private async validateSourceBlobExists(
     sourceBlockBlobClient: BlockBlobClient,
   ): Promise<void> {
@@ -61,6 +104,14 @@ export class BlobOperationService {
     }
   }
 
+  /**
+   * Realiza la **copia** del blob (`syncCopyFromURL`) y valida estado.
+   *
+   * @param {BlockBlobClient} sourceBlockBlobClient - Cliente del blob origen.
+   * @param {BlockBlobClient} destinationBlockBlobClient - Cliente del blob destino.
+   * @param {'move'|'copy'} operation - Tipo de operación (afecta el mensaje de error).
+   * @throws {InternalServerErrorException} Si `copyStatus` no es `success`.
+   */
   private async performBlobCopy(
     sourceBlockBlobClient: BlockBlobClient,
     destinationBlockBlobClient: BlockBlobClient,
@@ -81,6 +132,17 @@ export class BlobOperationService {
     }
   }
 
+  /**
+   * **Preserva** headers y metadatos del origen en el destino (best effort).
+   *
+   * @param {BlockBlobClient} sourceBlockBlobClient
+   * @param {BlockBlobClient} destinationBlockBlobClient
+   * @param {'move'|'copy'} operation
+   * @returns {Promise<void>}
+   *
+   * @remarks
+   * Errores en esta etapa no rompen la operación principal; solo se advierten.
+   */
   private async preserveBlobMetadata(
     sourceBlockBlobClient: BlockBlobClient,
     destinationBlockBlobClient: BlockBlobClient,
@@ -111,6 +173,13 @@ export class BlobOperationService {
     }
   }
 
+  /**
+   * Intenta **eliminar** el blob de origen tras un **move**.
+   * Si falla, **no interrumpe** la operación; solo registra advertencia.
+   *
+   * @param {BlockBlobClient} sourceBlockBlobClient
+   * @param {string} sourceBlobPath
+   */
   private async deleteSourceBlob(
     sourceBlockBlobClient: BlockBlobClient,
     sourceBlobPath: string,
@@ -129,6 +198,13 @@ export class BlobOperationService {
     }
   }
 
+  /**
+   * Mapea y relanza errores de manera consistente para `move`/`copy`.
+   *
+   * @param {any} error - Error capturado.
+   * @param {'move'|'copy'} operation - Tipo de operación (para mensajes).
+   * @throws {BadRequestException|BusinessErrorException|InternalServerErrorException}
+   */
   private handleBlobOperationError(
     error: any,
     operation: 'move' | 'copy',
@@ -160,6 +236,22 @@ export class BlobOperationService {
     );
   }
 
+  /**
+   * Ejecuta la operación genérica de **copy/move**:
+   * - Valida paths.
+   * - Genera SAS de origen/destino.
+   * - Verifica existencia del origen.
+   * - Copia usando `syncCopyFromURL`.
+   * - Preserva metadatos.
+   * - Elimina origen si es `move`.
+   *
+   * @param {string} containerName
+   * @param {string} sourceBlobPath
+   * @param {string} destinationBlobPath
+   * @param {'move'|'copy'} operation
+   * @returns {Promise<{ message: string; containerName: string; sourcePath: string; destinationPath: string; requestId: string; }>}
+   * @throws {BadRequestException|BusinessErrorException|InternalServerErrorException}
+   */
   private async executeBlobOperation(
     containerName: string,
     sourceBlobPath: string,
@@ -231,6 +323,14 @@ export class BlobOperationService {
     }
   }
 
+  /**
+   * **Mueve** un blob: copia y elimina el origen si la copia es exitosa.
+   *
+   * @param {string} containerName - Contenedor.
+   * @param {string} sourceBlobPath - Ruta origen (incluye nombre y extensión).
+   * @param {string} destinationBlobPath - Ruta destino.
+   * @returns {Promise<{ message: string; containerName: string; sourcePath: string; destinationPath: string; requestId: string; }>}
+   */
   async moveBlob(
     containerName: string,
     sourceBlobPath: string,
@@ -250,6 +350,14 @@ export class BlobOperationService {
     );
   }
 
+  /**
+   * **Copia** un blob de un path a otro, preservando metadatos.
+   *
+   * @param {string} containerName - Contenedor.
+   * @param {string} sourceBlobPath - Ruta origen (incluye nombre y extensión).
+   * @param {string} destinationBlobPath - Ruta destino.
+   * @returns {Promise<{ message: string; containerName: string; sourcePath: string; destinationPath: string; requestId: string; }>}
+   */
   async copyBlob(
     containerName: string,
     sourceBlobPath: string,

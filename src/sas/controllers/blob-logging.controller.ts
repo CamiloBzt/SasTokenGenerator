@@ -23,11 +23,42 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 import { BlobLoggingService } from '../services/blob-logging/blob-logging.service';
 
+/**
+ * @fileoverview
+ * Controller HTTP para el sistema de **Blob Logging** en Azure Storage.
+ *
+ * Endpoints:
+ * - `POST /logging/append`      → Agrega una entrada individual.
+ * - `POST /logging/append-bulk` → Agrega un lote de entradas.
+ * - `POST /logging/read`        → Lee contenido del log (o resumen para XLSX).
+ * - `POST /logging/stats`       → Obtiene estadísticas del archivo de log.
+ * - `GET  /logging/formats`     → Lista formatos soportados y casos de uso.
+ *
+ * Nota: El control de formato/estrategia se delega al servicio y su fábrica.
+ *
+ * @module sas/controllers/blob-logging.controller
+ */
 @ApiTags('Append Blob Logging ')
 @Controller('logging')
 export class BlobLoggingController {
+  /**
+   * @param {BlobLoggingService} loggingService - Servicio de alto nivel para operaciones de logging.
+   */
   constructor(private readonly loggingService: BlobLoggingService) {}
 
+  /**
+   * Agrega **una entrada** de log al archivo indicado.
+   *
+   * - La estrategia (LOG/CSV/XLSX) se determina por `config.fileType` o por la extensión del `fileName`.
+   * - Retorna metadatos útiles (estrategia, tipo, requestId).
+   *
+   * @param {AppendLogDto} appendLogDto - DTO con `fileName`, `entry` y `config`.
+   * @returns Respuesta con estado y metadatos de la operación.
+   *
+   * @example
+   * POST /logging/append
+   * { "fileName":"app", "entry":{ "level":"INFO", "message":"ok" }, "config":{ "fileType":"log" } }
+   */
   @Post('append')
   @ApiAppendLogOperation()
   @ApiBody({
@@ -164,6 +195,15 @@ export class BlobLoggingController {
     };
   }
 
+  /**
+   * Agrega un **lote** de entradas de log.
+   *
+   * - Convierte `timestamp` string → `Date` para cada entrada (si viene).
+   * - Aplica optimización acorde al tipo (append/chunking/regeneration).
+   *
+   * @param {AppendBulkLogsDto} appendBulkLogsDto - DTO con `fileName`, `entries` y `config`.
+   * @returns Respuesta con conteo de entradas procesadas y optimización aplicada.
+   */
   @Post('append-bulk')
   @ApiBulkLogOperation()
   @ApiBody({
@@ -362,6 +402,12 @@ export class BlobLoggingController {
     };
   }
 
+  /**
+   * Lee el contenido del archivo de log (o devuelve un **resumen** para Excel).
+   *
+   * @param {ReadLogsDto} readLogsDto - DTO con `fileName` y `config`.
+   * @returns Contenido y metadatos (tipo, content-type, legibilidad).
+   */
   @Post('read')
   @ApiReadLogOperation()
   @ApiBody({
@@ -458,6 +504,12 @@ export class BlobLoggingController {
     };
   }
 
+  /**
+   * Devuelve estadísticas del archivo de log (existencia, tamaño, fechas, etc.).
+   *
+   * @param {GetLogStatsDto} getLogStatsDto - DTO con `fileName` y `config`.
+   * @returns Estadísticas y compatibilidad con append, según el formato.
+   */
   @Post('stats')
   @ApiLogStatsOperation()
   @ApiBody({
@@ -559,6 +611,10 @@ export class BlobLoggingController {
     };
   }
 
+  /**
+   * Lista de formatos soportados y casos de uso recomendados.
+   * Fuente: `BlobLoggingService.getSupportedFormats()`.
+   */
   @Get('formats')
   @ApiOperation({
     summary: 'Obtener formatos de archivo soportados',
@@ -649,14 +705,18 @@ export class BlobLoggingController {
     };
   }
 
-  // Helper methods
+  // ============================
+  // Helpers privados del controlador
+  // ============================
 
+  /** Deducción simple del tipo por extensión del nombre. */
   private determineFileTypeFromName(fileName: string): string {
     if (fileName.endsWith('.csv')) return 'csv';
     if (fileName.endsWith('.xlsx')) return 'xlsx';
     return 'log';
   }
 
+  /** Traduce fileType → nombre de estrategia. */
   private getStrategyName(fileType: string): string {
     const strategyMap = {
       log: 'TraditionalLogStrategy',
@@ -666,6 +726,7 @@ export class BlobLoggingController {
     return strategyMap[fileType] || 'UnknownStrategy';
   }
 
+  /** Mapea el tipo a la optimización utilizada por la estrategia/writer. */
   private getOptimizationMethod(fileType: string): string {
     const optimizationMap = {
       log: 'append_blob_streaming',
@@ -675,6 +736,7 @@ export class BlobLoggingController {
     return optimizationMap[fileType] || 'standard';
   }
 
+  /** Devuelve el `Content-Type` esperado para cada formato. */
   private getContentType(fileType: string): string {
     const contentTypeMap = {
       log: 'text/plain',
@@ -684,14 +746,17 @@ export class BlobLoggingController {
     return contentTypeMap[fileType] || 'text/plain';
   }
 
+  /** Indica si el contenido es legible como texto plano en la respuesta. */
   private isContentReadable(fileType: string): boolean {
     return fileType === 'log' || fileType === 'csv';
   }
 
+  /** Indica si el formato soporta `append` (Append Blob). */
   private supportsAppend(fileType: string): boolean {
     return fileType === 'log' || fileType === 'csv';
   }
 
+  /** Casos de uso recomendados por formato. */
   private getUseCases(fileType: string): string[] {
     const useCasesMap = {
       log: [

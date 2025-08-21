@@ -4,6 +4,14 @@ import { AppConfigModule } from './config/config.module';
 import { EventHubInterceptor } from './interceptors/event-hub.interceptor';
 import { SasModule } from './sas/sas.module';
 
+/**
+ * Módulo raíz de la aplicación.
+ * - Importa los módulos de configuración y SAS.
+ * - Registra las rutas base de la API.
+ * - Configura condicionalmente el interceptor para enviar eventos a Event Hub,
+ *   solo si las variables de entorno necesarias están definidas.
+ */
+
 export function createAppModule() {
   const createProviders = () => {
     const providers = [];
