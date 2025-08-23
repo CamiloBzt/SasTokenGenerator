@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { BlobLoggingController } from './controllers/blob-logging.controller';
 import { BlobStorageController } from './controllers/blob-storage.controller';
 import { SasController } from './controllers/sas.controller';
+import { ExcelTemplateController } from './controllers/excel-template.controller';
 import { BlobLoggingService } from './services/blob-logging/blob-logging.service';
 import { LogStrategyFactory } from './services/blob-logging/factories/log-strategy-factory';
 import { CsvLogFormatter } from './services/blob-logging/formatters/csv-formatter';
@@ -10,6 +11,7 @@ import { XlsxLogFormatter } from './services/blob-logging/formatters/xlsx-format
 import { BlobStorageModule } from './services/blob-storage/blob-storage.module';
 import { FileValidationService } from './services/file-validation.service';
 import { SasService } from './services/sas.service';
+import { ExcelTemplateService } from './services/excel-template.service';
 
 /**
  * Módulo principal de SAS (Secure Access Service).
@@ -43,7 +45,12 @@ import { SasService } from './services/sas.service';
  */
 @Module({
   imports: [BlobStorageModule],
-  controllers: [SasController, BlobStorageController, BlobLoggingController],
+  controllers: [
+    SasController,
+    BlobStorageController,
+    BlobLoggingController,
+    ExcelTemplateController,
+  ],
   providers: [
     SasService,
     FileValidationService,
@@ -52,6 +59,7 @@ import { SasService } from './services/sas.service';
     TraditionalLogFormatter,
     CsvLogFormatter,
     XlsxLogFormatter,
+    ExcelTemplateService,
   ],
   exports: [SasService, LogStrategyFactory, BlobLoggingService],
 })
