@@ -84,4 +84,26 @@ describe('ExcelTemplateService', () => {
     expect(row3.getCell(2).value).toBe('COMPRA');
     expect(row3.getCell(6).value).toBe(80);
   });
+
+  it('should allow specifying start row and column on empty sheet', async () => {
+    const workbook = new Workbook();
+    workbook.addWorksheet('Sheet1');
+    const templateBuffer = Buffer.from(await workbook.xlsx.writeBuffer());
+
+    const resultBuffer = await service.fillTemplate(
+      templateBuffer,
+      [{ col1: 'A', col2: 'B' }],
+      'Sheet1',
+      3,
+      2,
+    );
+
+    const resultWb = new Workbook();
+    await resultWb.xlsx.load(resultBuffer as any);
+    const sheet = resultWb.getWorksheet('Sheet1');
+    const row3 = sheet.getRow(3);
+
+    expect(row3.getCell(2).value).toBe('A');
+    expect(row3.getCell(3).value).toBe('B');
+  });
 });

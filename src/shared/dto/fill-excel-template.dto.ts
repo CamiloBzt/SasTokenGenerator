@@ -31,6 +31,22 @@ export class FillExcelTemplateDto {
   sheetName?: string;
 
   @ApiProperty({
+    description:
+      'Fila inicial donde se agregarán datos si la plantilla está vacía',
+    required: false,
+    example: 2,
+  })
+  startRow?: number;
+
+  @ApiProperty({
+    description:
+      'Columna inicial donde se agregarán datos si la plantilla está vacía',
+    required: false,
+    example: 2,
+  })
+  startColumn?: number;
+
+  @ApiProperty({
     description: 'Filas a insertar en la plantilla',
     type: [Object],
     example: [{ nombre: 'Juan', edad: 30 }],

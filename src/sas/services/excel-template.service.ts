@@ -21,6 +21,8 @@ export class ExcelTemplateService {
     templateBuffer: Buffer,
     rows: Record<string, any>[],
     sheetName?: string,
+    startRow?: number,
+    startColumn?: number,
   ): Promise<Buffer> {
     const workbook = new Workbook();
     await workbook.xlsx.load(templateBuffer as any);
@@ -29,18 +31,30 @@ export class ExcelTemplateService {
       ? workbook.getWorksheet(sheetName) || workbook.worksheets[0]
       : workbook.worksheets[0];
 
-    const lastRowNumber = worksheet.lastRow?.number ?? 0;
+    let lastRowNumber = worksheet.lastRow?.number ?? 0;
+
+    // Si se especifica una fila inicial y la hoja está vacía o tiene menos filas,
+    // agregar filas vacías hasta alcanzar dicha fila - 1.
+    if (startRow && lastRowNumber < startRow - 1) {
+      while (lastRowNumber < startRow - 1) {
+        worksheet.addRow([]);
+        lastRowNumber++;
+      }
+    }
+
     const templateRow = worksheet.getRow(lastRowNumber);
 
     // Determinar la primera columna con datos en la fila plantilla
-    let startColumn = Number.MAX_SAFE_INTEGER;
-    templateRow.eachCell({ includeEmpty: false }, (_, col) => {
-      if (col < startColumn) {
-        startColumn = col;
+    let effectiveStartColumn = startColumn ?? Number.MAX_SAFE_INTEGER;
+    if (startColumn == null) {
+      templateRow.eachCell({ includeEmpty: false }, (_, col) => {
+        if (col < effectiveStartColumn!) {
+          effectiveStartColumn = col;
+        }
+      });
+      if (effectiveStartColumn === Number.MAX_SAFE_INTEGER) {
+        effectiveStartColumn = 1;
       }
-    });
-    if (startColumn === Number.MAX_SAFE_INTEGER) {
-      startColumn = 1;
     }
 
     rows.forEach((rowData) => {
@@ -54,7 +68,7 @@ export class ExcelTemplateService {
 
       // Asignar valores a partir de la columna de inicio detectada
       Object.values(rowData).forEach((value, index) => {
-        row.getCell(startColumn + index).value = value;
+        row.getCell(effectiveStartColumn + index).value = value;
       });
     });
 

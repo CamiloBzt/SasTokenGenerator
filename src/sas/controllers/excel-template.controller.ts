@@ -69,6 +69,8 @@ export class ExcelTemplateController {
       baseBuffer,
       rows || [],
       body.sheetName,
+      body.startRow,
+      body.startColumn,
     );
 
     const uploadFile: Express.Multer.File = {
