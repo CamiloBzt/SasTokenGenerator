@@ -32,10 +32,29 @@ export class ExcelTemplateService {
     const lastRowNumber = worksheet.lastRow?.number ?? 0;
     const templateRow = worksheet.getRow(lastRowNumber);
 
+    // Determinar la primera columna con datos en la fila plantilla
+    let startColumn = Number.MAX_SAFE_INTEGER;
+    templateRow.eachCell({ includeEmpty: false }, (_, col) => {
+      if (col < startColumn) {
+        startColumn = col;
+      }
+    });
+    if (startColumn === Number.MAX_SAFE_INTEGER) {
+      startColumn = 1;
+    }
+
     rows.forEach((rowData) => {
-      const row = worksheet.addRow(Object.values(rowData));
+      // Crear una fila vacía para poder alinear las columnas correctamente
+      const row = worksheet.addRow([]);
+
+      // Copiar estilos de la fila de plantilla, incluso celdas vacías
       templateRow.eachCell({ includeEmpty: true }, (cell, col) => {
         row.getCell(col).style = { ...cell.style };
+      });
+
+      // Asignar valores a partir de la columna de inicio detectada
+      Object.values(rowData).forEach((value, index) => {
+        row.getCell(startColumn + index).value = value;
       });
     });
 
