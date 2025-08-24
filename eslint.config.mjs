@@ -1,7 +1,10 @@
 import { FlatCompat } from '@eslint/eslintrc';
+import eslintJs from '@eslint/js';
 
 const compat = new FlatCompat({
   baseDirectory: import.meta.dirname,
+  recommendedConfig: eslintJs.configs.recommended,
+  allConfig: eslintJs.configs.all,
 });
 
 export default [
