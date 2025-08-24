@@ -21,6 +21,8 @@ export class ExcelTemplateService {
     templateBuffer: Buffer,
     rows: Record<string, any>[],
     sheetName?: string,
+    startRow?: number,
+    startColumn?: number,
   ): Promise<Buffer> {
     const workbook = new Workbook();
     await workbook.xlsx.load(templateBuffer as any);
@@ -29,13 +31,52 @@ export class ExcelTemplateService {
       ? workbook.getWorksheet(sheetName) || workbook.worksheets[0]
       : workbook.worksheets[0];
 
-    const lastRowNumber = worksheet.lastRow?.number ?? 0;
-    const templateRow = worksheet.getRow(lastRowNumber);
+    // Asegurar que los parámetros numéricos no sean cadenas
+    const numericStartRow = startRow != null ? Number(startRow) : undefined;
+    const numericStartColumn =
+      startColumn != null ? Number(startColumn) : undefined;
+
+    // Determinar la última fila con datos reales (ignora filas vacías con estilo)
+    let lastDataRow = 0;
+    worksheet.eachRow({ includeEmpty: false }, (_, rowNumber) => {
+      if (rowNumber > lastDataRow) {
+        lastDataRow = rowNumber;
+      }
+    });
+
+    // Fila donde se comenzará a insertar
+    let insertionRow = numericStartRow ?? lastDataRow + 1;
+    if (numericStartRow != null && lastDataRow >= numericStartRow) {
+      insertionRow = lastDataRow + 1;
+    }
+
+    // Fila usada como referencia para copiar estilos
+    const templateRow = worksheet.getRow(insertionRow - 1);
+
+    // Determinar la primera columna con datos en la fila plantilla
+    let effectiveStartColumn = numericStartColumn ?? Number.MAX_SAFE_INTEGER;
+    if (numericStartColumn == null) {
+      templateRow.eachCell({ includeEmpty: false }, (_, col) => {
+        if (col < effectiveStartColumn!) {
+          effectiveStartColumn = col;
+        }
+      });
+      if (effectiveStartColumn === Number.MAX_SAFE_INTEGER) {
+        effectiveStartColumn = 1;
+      }
+    }
 
     rows.forEach((rowData) => {
-      const row = worksheet.addRow(Object.values(rowData));
+      const row = worksheet.getRow(insertionRow++);
+
+      // Copiar estilos de la fila de plantilla, incluso celdas vacías
       templateRow.eachCell({ includeEmpty: true }, (cell, col) => {
         row.getCell(col).style = { ...cell.style };
+      });
+
+      // Asignar valores a partir de la columna de inicio detectada
+      Object.values(rowData).forEach((value, index) => {
+        row.getCell(effectiveStartColumn + index).value = value;
       });
     });
 
