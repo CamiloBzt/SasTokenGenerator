@@ -31,12 +31,17 @@ export class ExcelTemplateService {
       ? workbook.getWorksheet(sheetName) || workbook.worksheets[0]
       : workbook.worksheets[0];
 
+    // Asegurar que los parámetros numéricos no sean cadenas
+    const numericStartRow = startRow != null ? Number(startRow) : undefined;
+    const numericStartColumn =
+      startColumn != null ? Number(startColumn) : undefined;
+
     let lastRowNumber = worksheet.lastRow?.number ?? 0;
 
     // Si se especifica una fila inicial y la hoja está vacía o tiene menos filas,
     // agregar filas vacías hasta alcanzar dicha fila - 1.
-    if (startRow && lastRowNumber < startRow - 1) {
-      while (lastRowNumber < startRow - 1) {
+    if (numericStartRow && lastRowNumber < numericStartRow - 1) {
+      while (lastRowNumber < numericStartRow - 1) {
         worksheet.addRow([]);
         lastRowNumber++;
       }
@@ -45,8 +50,8 @@ export class ExcelTemplateService {
     const templateRow = worksheet.getRow(lastRowNumber);
 
     // Determinar la primera columna con datos en la fila plantilla
-    let effectiveStartColumn = startColumn ?? Number.MAX_SAFE_INTEGER;
-    if (startColumn == null) {
+    let effectiveStartColumn = numericStartColumn ?? Number.MAX_SAFE_INTEGER;
+    if (numericStartColumn == null) {
       templateRow.eachCell({ includeEmpty: false }, (_, col) => {
         if (col < effectiveStartColumn!) {
           effectiveStartColumn = col;
