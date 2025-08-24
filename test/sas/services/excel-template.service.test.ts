@@ -107,6 +107,44 @@ describe('ExcelTemplateService', () => {
     expect(row3.getCell(3).value).toBe('B');
   });
 
+  it('should honour provided startRow on templates with trailing empty rows', async () => {
+    const workbook = new Workbook();
+    const sheet = workbook.addWorksheet('Sheet1');
+    // Datos hasta la fila 8
+    sheet.getCell('A8').value = 'header';
+    // Aumentar artificialmente el rowCount dejando filas vacías hasta la 19
+    sheet.getRow(19);
+    const templateBuffer = Buffer.from(await workbook.xlsx.writeBuffer());
+
+    const firstBuffer = await service.fillTemplate(
+      templateBuffer,
+      [{ col1: 'A', col2: 'B' }],
+      'Sheet1',
+      9,
+      2,
+    );
+
+    const secondBuffer = await service.fillTemplate(
+      firstBuffer,
+      [{ col1: 'C', col2: 'D' }],
+      'Sheet1',
+      9,
+      2,
+    );
+
+    const resultWb = new Workbook();
+    await resultWb.xlsx.load(secondBuffer as any);
+    const sheetResult = resultWb.getWorksheet('Sheet1');
+
+    const row9 = sheetResult.getRow(9);
+    expect(row9.getCell(2).value).toBe('A');
+    expect(row9.getCell(3).value).toBe('B');
+
+    const row10 = sheetResult.getRow(10);
+    expect(row10.getCell(2).value).toBe('C');
+    expect(row10.getCell(3).value).toBe('D');
+  });
+
   it('should coerce string startRow and startColumn values', async () => {
     const workbook = new Workbook();
     workbook.addWorksheet('Sheet1');

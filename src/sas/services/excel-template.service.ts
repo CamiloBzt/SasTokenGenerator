@@ -36,18 +36,22 @@ export class ExcelTemplateService {
     const numericStartColumn =
       startColumn != null ? Number(startColumn) : undefined;
 
-    let lastRowNumber = worksheet.lastRow?.number ?? 0;
-
-    // Si se especifica una fila inicial y la hoja está vacía o tiene menos filas,
-    // agregar filas vacías hasta alcanzar dicha fila - 1.
-    if (numericStartRow && lastRowNumber < numericStartRow - 1) {
-      while (lastRowNumber < numericStartRow - 1) {
-        worksheet.addRow([]);
-        lastRowNumber++;
+    // Determinar la última fila con datos reales (ignora filas vacías con estilo)
+    let lastDataRow = 0;
+    worksheet.eachRow({ includeEmpty: false }, (_, rowNumber) => {
+      if (rowNumber > lastDataRow) {
+        lastDataRow = rowNumber;
       }
+    });
+
+    // Fila donde se comenzará a insertar
+    let insertionRow = numericStartRow ?? lastDataRow + 1;
+    if (numericStartRow != null && lastDataRow >= numericStartRow) {
+      insertionRow = lastDataRow + 1;
     }
 
-    const templateRow = worksheet.getRow(lastRowNumber);
+    // Fila usada como referencia para copiar estilos
+    const templateRow = worksheet.getRow(insertionRow - 1);
 
     // Determinar la primera columna con datos en la fila plantilla
     let effectiveStartColumn = numericStartColumn ?? Number.MAX_SAFE_INTEGER;
@@ -63,8 +67,7 @@ export class ExcelTemplateService {
     }
 
     rows.forEach((rowData) => {
-      // Crear una fila vacía para poder alinear las columnas correctamente
-      const row = worksheet.addRow([]);
+      const row = worksheet.getRow(insertionRow++);
 
       // Copiar estilos de la fila de plantilla, incluso celdas vacías
       templateRow.eachCell({ includeEmpty: true }, (cell, col) => {
