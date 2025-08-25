@@ -145,6 +145,63 @@ describe('ExcelTemplateService', () => {
     expect(row10.getCell(3).value).toBe('D');
   });
 
+  it('should use styles of the insertion row when no data exists below startRow', async () => {
+    const workbook = new Workbook();
+    const sheet = workbook.addWorksheet('Sheet1');
+
+    // Encabezado en la fila 9 con estilo verde
+    const headerRow = sheet.getRow(9);
+    headerRow.getCell(2).value = 'HEADER';
+    headerRow.eachCell((cell) => {
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FF00FF00' },
+      };
+    });
+
+    // Fila plantilla (fila 10) con estilo amarillo
+    const templateRow = sheet.getRow(10);
+    const templateCell = templateRow.getCell(2);
+    templateCell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFFFFF00' },
+    };
+
+    const templateBuffer = Buffer.from(await workbook.xlsx.writeBuffer());
+
+    // Primera inserción en una hoja sin datos previos
+    const firstBuffer = await service.fillTemplate(
+      templateBuffer,
+      [{ col1: 'A' }],
+      'Sheet1',
+      10,
+      2,
+    );
+
+    // Segunda inserción (append)
+    const secondBuffer = await service.fillTemplate(
+      firstBuffer,
+      [{ col1: 'B' }],
+      'Sheet1',
+      10,
+      2,
+    );
+
+    const resultWb = new Workbook();
+    await resultWb.xlsx.load(secondBuffer as any);
+    const resultSheet = resultWb.getWorksheet('Sheet1');
+
+    const row10 = resultSheet.getRow(10);
+    expect(row10.getCell(2).value).toBe('A');
+    expect((row10.getCell(2).fill as any)?.fgColor?.argb).toBe('FFFFFF00');
+
+    const row11 = resultSheet.getRow(11);
+    expect(row11.getCell(2).value).toBe('B');
+    expect((row11.getCell(2).fill as any)?.fgColor?.argb).toBe('FFFFFF00');
+  });
+
   it('should coerce string startRow and startColumn values', async () => {
     const workbook = new Workbook();
     workbook.addWorksheet('Sheet1');
