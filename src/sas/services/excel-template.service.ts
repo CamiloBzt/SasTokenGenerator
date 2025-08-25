@@ -51,7 +51,13 @@ export class ExcelTemplateService {
     }
 
     // Fila usada como referencia para copiar estilos
-    const templateRow = worksheet.getRow(insertionRow - 1);
+    // Si se especifica un startRow y la plantilla no tiene datos
+    // por debajo de esa fila, se toman los estilos de la fila de inicio
+    // para evitar heredar estilos de filas anteriores (p. ej. encabezados).
+    const templateRow =
+      numericStartRow != null && lastDataRow < numericStartRow
+        ? worksheet.getRow(numericStartRow)
+        : worksheet.getRow(insertionRow - 1);
 
     // Determinar la primera columna con datos en la fila plantilla
     let effectiveStartColumn = numericStartColumn ?? Number.MAX_SAFE_INTEGER;
